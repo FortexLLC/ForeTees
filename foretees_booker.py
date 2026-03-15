@@ -164,8 +164,6 @@ def run():
             page.fill('#password', password)
             page.click('input.button-primary[type="submit"]')
             page.wait_for_load_state("networkidle", timeout=15000)
-            log.info("Login submitted, waiting for page to load...")
-            time.sleep(3)
             log.info(f"Post-login URL: {page.url}")
 
             # Verify login succeeded
@@ -182,7 +180,6 @@ def run():
             tee_times_link = page.locator('text="Tee Times"').first
             if tee_times_link.is_visible():
                 tee_times_link.click()
-                time.sleep(1)
 
             make_tee_times = page.locator('text="Make, Change, or View Tee Times"').first
             if make_tee_times.is_visible(timeout=5000):
@@ -193,7 +190,6 @@ def run():
 
             page.wait_for_load_state("networkidle", timeout=15000)
             log.info("Tee sheet page loaded.")
-            time.sleep(1)
 
             # ---------------------------------------------------------------
             # Step 5 — Select target day on the calendar
@@ -233,7 +229,6 @@ def run():
                 sys.exit(1)
 
             page.wait_for_load_state("networkidle", timeout=10000)
-            time.sleep(1)
             log.info("Saturday tee sheet loaded.")
 
             # ---------------------------------------------------------------
@@ -250,7 +245,6 @@ def run():
                 # ---------------------------------------------------------------
                 log.info("Refreshing page to load tee times...")
                 page.reload(wait_until="networkidle", timeout=15000)
-                time.sleep(2)
                 log.info("Page refreshed.")
 
             # ---------------------------------------------------------------
@@ -310,11 +304,10 @@ def run():
             log.info(f"Selected tee time: '{selected_time}' (button index {target['index']}, "
                      f"{target['openCount']} open slots)")
 
-            # Click the winning button
+            # Click the winning button and wait for booking form to appear
             buttons = page.locator('a.teetime_button')
             buttons.nth(target['index']).click()
-            time.sleep(3)
-            page.wait_for_load_state("networkidle", timeout=15000)
+            page.locator('input.ftS-playerNameInput').first.wait_for(state="visible", timeout=10000)
             log.info(f"Clicked tee time '{selected_time}' — booking form loaded.")
             take_screenshot(page, "after_slot_click")
 
@@ -393,7 +386,6 @@ def run():
                     el = el.parentElement;
                 }
             }''')
-            time.sleep(1)
 
             # Check if search input is now visible
             search_visible = page.evaluate('''() => {
@@ -413,20 +405,24 @@ def run():
                     search_input = page.locator('input.ftMs-input').first
                     search_input.click(force=True, timeout=5000)
                     search_input.fill("")  # Clear previous search
-                    search_input.type(last_name, delay=100)  # Type with delay for autocomplete
-                    time.sleep(1.5)
-                    log.info(f"Typed '{last_name}' in member search.")
+                    search_input.type(last_name, delay=50)  # Type with delay for autocomplete
+                    # Wait for autocomplete result containing the member ID to appear
+                    result = page.locator(f'text="{member_id_guest}"').first
+                    result.wait_for(state="visible", timeout=5000)
+                    log.info(f"Typed '{last_name}' — autocomplete result visible.")
                     take_screenshot(page, f"search_slot{slot_idx}")
 
-                    # Click the matching result (format: "LastName_HNNNN, FirstName")
-                    # The result could be in any element type (div, li, span, etc.)
-                    result = page.locator(f'text="{member_id_guest}"').first
-                    if not result.is_visible(timeout=3000):
-                        # Try broader match with just the last name
-                        result = page.locator(f':has-text("{member_id_guest}")').last
+                    # Click the matching result
                     result.click(timeout=5000)
+                    # Wait for the player name input to be filled (confirms member was added)
+                    page.wait_for_function(
+                        f'''() => {{
+                            const inp = document.querySelector("#slot_player_row_{slot_idx} input.ftS-playerNameInput");
+                            return inp && inp.value && inp.value.trim() !== "";
+                        }}''',
+                        timeout=5000
+                    )
                     log.info(f"Added {name} to player {player_num}.")
-                    time.sleep(1)
                     take_screenshot(page, f"after_add_slot{slot_idx}")
 
                 except Exception as e:
@@ -481,7 +477,6 @@ def run():
                     'input[value="Submit Request"]'
                 ).first
                 confirm_btn.click(timeout=5000)
-                time.sleep(3)
 
                 # Check for and dismiss any error/validation dialog
                 try:
@@ -491,7 +486,7 @@ def run():
                         log.warning(f"Dialog appeared after submit: {dialog_text}")
                         take_screenshot(page, "error_dialog")
                         dialog_close.click()
-                        time.sleep(1)
+                        time.sleep(0.5)
                         # Retry submit
                         confirm_btn = page.locator(
                             'a:has-text("Submit Request"), '
@@ -499,13 +494,11 @@ def run():
                             'input[value="Submit Request"]'
                         ).first
                         confirm_btn.click(timeout=5000)
-                        time.sleep(3)
                 except Exception:
                     pass
 
                 page.wait_for_load_state("networkidle", timeout=15000)
                 log.info("Booking submitted!")
-                time.sleep(3)
             except Exception as e:
                 log.error(f"Could not click Submit Request button: {e}")
                 take_screenshot(page, "error_submit")
