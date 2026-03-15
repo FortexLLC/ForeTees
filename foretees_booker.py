@@ -342,10 +342,9 @@ def run():
             }''')
             log.info(f"Empty player slot indices: {empty_slot_indices}")
 
-            # Skip the first empty slot (auto-fills with account owner), add guests to the rest
+            # Fill all empty slots with guests (slot 0 has the account owner)
             # Slot indices are 0-based; player numbers displayed are 1-based
-            guest_slots = empty_slot_indices[1:]  # First empty slot is ours
-            for slot_idx, (name, member_id_guest) in zip(guest_slots, GUEST_MEMBERS):
+            for slot_idx, (name, member_id_guest) in zip(empty_slot_indices, GUEST_MEMBERS):
                 player_num = slot_idx + 1  # 1-based display number
                 log.info(f"Adding {name} ({member_id_guest}) to player {player_num} (slot {slot_idx})...")
                 try:
@@ -362,16 +361,25 @@ def run():
                     except Exception:
                         pass
 
-                    # Click the "Members" tab to show the member search
-                    members_tab = page.locator('a:has-text("Members")').first
-                    members_tab.click(timeout=3000)
-                    time.sleep(1)
-                    log.info("Clicked Members tab.")
+                    # Click the "Members" tab via JavaScript (href link blocks Playwright click)
+                    page.evaluate('''() => {
+                        const tabs = document.querySelectorAll("a");
+                        for (const tab of tabs) {
+                            if (tab.textContent.trim() === "Members" && tab.href && tab.href.includes("searchmem")) {
+                                tab.click();
+                                return true;
+                            }
+                        }
+                        return false;
+                    }''')
+                    time.sleep(1.5)
+                    log.info("Clicked Members tab via JS.")
+                    take_screenshot(page, f"members_tab_slot{slot_idx}")
 
                     # Type the member's last name into the search field
                     last_name = name.split()[1]
                     search_input = page.locator('input.ftMs-input').first
-                    search_input.click(timeout=3000)
+                    search_input.click(timeout=5000)
                     search_input.fill(last_name)
                     time.sleep(1.5)
                     log.info(f"Typed '{last_name}' in member search.")
@@ -393,11 +401,11 @@ def run():
             log.info("Confirming the booking...")
             take_screenshot(page, "before_submit")
             try:
+                # Submit button may be <a>, <button>, or <input> element
                 confirm_btn = page.locator(
+                    'a:has-text("Submit Request"), '
                     'button:has-text("Submit Request"), '
-                    'input[value="Submit Request"], '
-                    'button:has-text("Submit"), '
-                    'input[type="submit"]'
+                    'input[value="Submit Request"]'
                 ).first
                 confirm_btn.click(timeout=5000)
                 page.wait_for_load_state("networkidle", timeout=15000)
