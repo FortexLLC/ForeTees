@@ -7,6 +7,7 @@ Automatically books the first available Saturday tee time every Monday at 7:00am
 import os
 import sys
 import time
+import json
 import logging
 from datetime import datetime, timedelta
 
@@ -257,78 +258,64 @@ def run():
             # ---------------------------------------------------------------
             log.info(f"Scanning for tee time with at least {MIN_OPEN_SLOTS} open slots...")
 
-            # ForeTees div-based tee sheet:
-            #   Available rows have <a class="teetime_button"> with data-ftjson.
-            #   Some buttons lead to partially booked slots. We click each button,
-            #   check how many player name fields are empty on the booking form,
-            #   and go back if fewer than MIN_OPEN_SLOTS are open.
+            # FAST FILTER: Each teetime_button has a data-ftjson attribute with
+            # wasP1..wasP4 fields showing who's booked. Empty string = open slot.
+            # We parse this JSON on the tee sheet page to find the first button
+            # with all 4 slots open — no clicking/navigating needed.
 
-            buttons = page.locator('a.teetime_button')
-            button_count = buttons.count()
-            log.info(f"Found {button_count} available teetime_button(s)")
+            scan_results = page.evaluate('''() => {
+                const buttons = document.querySelectorAll("a.teetime_button");
+                const results = [];
+                for (let i = 0; i < buttons.length; i++) {
+                    const btn = buttons[i];
+                    const raw = btn.getAttribute("data-ftjson");
+                    if (!raw) continue;
+                    try {
+                        const d = JSON.parse(raw);
+                        const slots = ["wasP1", "wasP2", "wasP3", "wasP4"];
+                        const openCount = slots.filter(k => !d[k] || d[k].trim() === "").length;
+                        results.push({
+                            index: i,
+                            time: d["time:0"] || btn.textContent.trim(),
+                            openCount: openCount,
+                            wasP1: d.wasP1 || "",
+                            wasP2: d.wasP2 || "",
+                            wasP3: d.wasP3 || "",
+                            wasP4: d.wasP4 || ""
+                        });
+                    } catch(e) {}
+                }
+                return results;
+            }''')
 
-            if button_count == 0:
-                log.error("No available tee time buttons found on the tee sheet.")
-                take_screenshot(page, "error_no_slots")
-                sys.exit(1)
+            log.info(f"Found {len(scan_results)} teetime_button(s) on sheet")
+            for r in scan_results:
+                log.info(f"  {r['time']}: {r['openCount']} open  "
+                         f"[{r['wasP1'] or '—'}, {r['wasP2'] or '—'}, "
+                         f"{r['wasP3'] or '—'}, {r['wasP4'] or '—'}]")
 
-            # Try each teetime_button until we find one with enough open slots
-            selected_time = None
-            for btn_idx in range(button_count):
-                btn = buttons.nth(btn_idx)
-                button_text = btn.text_content().strip()
-                log.info(f"Trying tee time button {btn_idx + 1}/{button_count}: '{button_text}'")
-                btn.click()
-                time.sleep(3)
-                page.wait_for_load_state("networkidle", timeout=15000)
-
-                # On first button, dump the ancestor chain of ftMs-input for debugging
-                if btn_idx == 0:
-                    ancestor_info = page.evaluate('''() => {
-                        let el = document.querySelector("input.ftMs-input");
-                        if (!el) return "ftMs-input NOT FOUND in DOM!";
-                        let info = "";
-                        let depth = 0;
-                        while (el && depth < 15) {
-                            const cs = getComputedStyle(el);
-                            info += depth + ": <" + el.tagName + " id='" + el.id + "' class='"
-                                  + (el.className || "").toString().substring(0, 80)
-                                  + "'> display=" + cs.display + " visibility=" + cs.visibility
-                                  + " height=" + cs.height + " overflow=" + cs.overflow + "\\n";
-                            el = el.parentElement;
-                            depth++;
-                        }
-                        return info;
-                    }''')
-                    log.info(f"ftMs-input ancestor chain:\\n{ancestor_info}")
-
-                # Count empty player name fields on the booking form
-                empty_slots = page.evaluate('''() => {
-                    const inputs = document.querySelectorAll("input.ftS-playerNameInput");
-                    let empty = 0;
-                    for (const inp of inputs) {
-                        if (!inp.value || inp.value.trim() === "") empty++;
-                    }
-                    return empty;
-                }''')
-                log.info(f"Tee time '{button_text}': {empty_slots} empty slot(s)")
-
-                if empty_slots >= MIN_OPEN_SLOTS:
-                    selected_time = button_text
-                    log.info(f"Found tee time with {empty_slots} open slots: '{button_text}'")
+            # Find the first button with enough open slots
+            target = None
+            for r in scan_results:
+                if r['openCount'] >= MIN_OPEN_SLOTS:
+                    target = r
                     break
-                else:
-                    log.info(f"Only {empty_slots} open slots, need {MIN_OPEN_SLOTS}. Going back...")
-                    page.go_back(wait_until="networkidle", timeout=15000)
-                    time.sleep(2)
-                    # Re-locate buttons after navigation
-                    buttons = page.locator('a.teetime_button')
 
-            if not selected_time:
+            if not target:
                 log.error(f"No tee time found with {MIN_OPEN_SLOTS} open slots.")
                 take_screenshot(page, "error_no_open_slots")
                 sys.exit(1)
 
+            selected_time = target['time']
+            log.info(f"Selected tee time: '{selected_time}' (button index {target['index']}, "
+                     f"{target['openCount']} open slots)")
+
+            # Click the winning button
+            buttons = page.locator('a.teetime_button')
+            buttons.nth(target['index']).click()
+            time.sleep(3)
+            page.wait_for_load_state("networkidle", timeout=15000)
+            log.info(f"Clicked tee time '{selected_time}' — booking form loaded.")
             take_screenshot(page, "after_slot_click")
 
             # ---------------------------------------------------------------
