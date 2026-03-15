@@ -252,23 +252,32 @@ def run():
             take_screenshot(page, "after_refresh")
             log.info("Page refreshed — scanning for available tee times.")
 
-            # Dump tee time rows for selector debugging
+            # Dump tee time rows — find both booked and available for comparison
             tee_html = page.evaluate('''() => {
                 const rows = document.querySelectorAll(".rwdTr");
                 let info = "Total rwdTr rows: " + rows.length + "\\n\\n";
 
-                let count = 0;
+                let bookedSample = null;
+                let availableSamples = [];
+
                 for (const row of rows) {
-                    if (count >= 3) break;
                     const timeSlot = row.querySelector(".time_slot");
                     if (!timeSlot) continue;
 
-                    info += "--- Row " + count + " ---\\n";
-                    info += "Row classes: " + row.className + "\\n";
-                    info += "Row onclick: " + (row.getAttribute("onclick") || "none") + "\\n";
-                    info += "Row outerHTML (first 800 chars): " + row.outerHTML.substring(0, 800) + "\\n\\n";
-                    count++;
+                    const playerCols = row.querySelectorAll(".plCol, .pgCol");
+                    const playerText = Array.from(playerCols).map(c => c.textContent.trim()).join("|");
+                    const hasPlayers = playerText.length > 5;
+
+                    if (hasPlayers && !bookedSample) {
+                        bookedSample = {time: timeSlot.textContent.trim(), classes: row.className, html: row.outerHTML.substring(0, 600)};
+                    }
+                    if (!hasPlayers && availableSamples.length < 2) {
+                        availableSamples.push({time: timeSlot.textContent.trim(), classes: row.className, html: row.outerHTML.substring(0, 600), playerText: playerText});
+                    }
                 }
+
+                info += "Booked sample: " + JSON.stringify(bookedSample, null, 2) + "\\n\\n";
+                info += "Available samples: " + JSON.stringify(availableSamples, null, 2);
                 return info;
             }''')
             log.info(f"Tee sheet rows:\n{tee_html}")
