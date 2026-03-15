@@ -23,6 +23,10 @@ BOOKING_MINUTE = 0      # Minute the booking window opens
 LOGIN_EARLY_MIN = 2     # Minutes before 7am to log in
 MOUNTAIN_TZ = "America/Denver"  # Handles MDT/MST automatically via pytz
 
+# TEST MODE: Set to a specific date string (e.g. "19") to override Saturday selection,
+# and skip the 7am wait. Set to None for production.
+TEST_DAY_OVERRIDE = "19"  # Thursday March 19 for testing
+
 # Members to add to slots 2-4 (name, ForeTees member ID)
 GUEST_MEMBERS = [
     ("Brandon Tolle", "Tolle_H1454"),
@@ -191,10 +195,14 @@ def run():
             time.sleep(1)
 
             # ---------------------------------------------------------------
-            # Step 5 — Select Saturday on the calendar (BEFORE 7am)
+            # Step 5 — Select target day on the calendar
             # ---------------------------------------------------------------
-            sat_day = target_saturday.day
-            log.info(f"Selecting Saturday: {target_saturday.strftime('%B')} {sat_day}")
+            if TEST_DAY_OVERRIDE:
+                sat_day = int(TEST_DAY_OVERRIDE)
+                log.info(f"TEST MODE: Selecting day {sat_day} instead of Saturday")
+            else:
+                sat_day = target_saturday.day
+                log.info(f"Selecting Saturday: {target_saturday.strftime('%B')} {sat_day}")
 
             sat_clicked = False
             try:
@@ -230,16 +238,19 @@ def run():
             # ---------------------------------------------------------------
             # Step 6 — Wait until exactly 7:00:00am MT
             # ---------------------------------------------------------------
-            log.info("Waiting for booking window to open at 7:00:00am MT...")
-            wait_until(booking_time, "booking window")
+            if TEST_DAY_OVERRIDE:
+                log.info("TEST MODE: Skipping 7am wait.")
+            else:
+                log.info("Waiting for booking window to open at 7:00:00am MT...")
+                wait_until(booking_time, "booking window")
 
-            # ---------------------------------------------------------------
-            # Step 7 — Refresh the page to load available tee times
-            # ---------------------------------------------------------------
-            log.info("Refreshing page to load tee times...")
-            page.reload(wait_until="networkidle", timeout=15000)
-            time.sleep(2)
-            log.info("Page refreshed.")
+                # ---------------------------------------------------------------
+                # Step 7 — Refresh the page to load available tee times
+                # ---------------------------------------------------------------
+                log.info("Refreshing page to load tee times...")
+                page.reload(wait_until="networkidle", timeout=15000)
+                time.sleep(2)
+                log.info("Page refreshed.")
 
             # ---------------------------------------------------------------
             # Step 8 — Find first tee time with enough open slots
