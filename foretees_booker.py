@@ -258,14 +258,11 @@ def run():
             log.info(f"Scanning for tee time with at least {MIN_OPEN_SLOTS} open slots...")
 
             # ForeTees div-based tee sheet:
-            #   Booked rows: have .time_slot div with time text + player names in .pgCol spans
-            #   Available rows: have .teetime_button <a> tag (no .time_slot) with data-ftjson
-            #   The teetime_button is what you click to book an open slot
-            #
-            # For fully open tee times (all 4 slots), the row has a teetime_button
-            # and all pgCol divs are empty.
+            #   Available rows have <a class="teetime_button"> with data-ftjson.
+            #   Some buttons lead to partially booked slots. We click each button,
+            #   check how many player name fields are empty on the booking form,
+            #   and go back if fewer than MIN_OPEN_SLOTS are open.
 
-            # First, find all available tee time buttons
             buttons = page.locator('a.teetime_button')
             button_count = buttons.count()
             log.info(f"Found {button_count} available teetime_button(s)")
@@ -275,100 +272,120 @@ def run():
                 take_screenshot(page, "error_no_slots")
                 sys.exit(1)
 
-            # Click the first available teetime_button
-            first_button = buttons.first
-            button_text = first_button.text_content().strip()
-            log.info(f"Clicking first available tee time button: '{button_text}'")
-            first_button.click()
-            log.info(f"Clicked tee time '{button_text}'. Waiting for booking form...")
-            time.sleep(3)
-            page.wait_for_load_state("networkidle", timeout=15000)
-            take_screenshot(page, "after_slot_click")
+            # Try each teetime_button until we find one with enough open slots
+            selected_time = None
+            for btn_idx in range(button_count):
+                btn = buttons.nth(btn_idx)
+                button_text = btn.text_content().strip()
+                log.info(f"Trying tee time button {btn_idx + 1}/{button_count}: '{button_text}'")
+                btn.click()
+                time.sleep(3)
+                page.wait_for_load_state("networkidle", timeout=15000)
 
-            # Dump page state for debugging the booking form
-            page_info = page.evaluate('''() => {
-                const inputs = document.querySelectorAll("input[type=text], input[type=search], select");
-                let info = "URL: " + window.location.href + "\\n";
-                info += "Inputs: " + inputs.length + "\\n";
-                for (const inp of inputs) {
-                    info += "  <" + inp.tagName + " name='" + inp.name + "' id='" + inp.id
-                         + "' placeholder='" + (inp.placeholder || "") + "' class='" + inp.className + "'>\\n";
-                }
-                const playerEls = document.querySelectorAll("[class*=player], [class*=Player], [id*=player], [id*=Player]");
-                info += "Player elements: " + playerEls.length + "\\n";
-                for (const pe of playerEls) {
-                    info += "  <" + pe.tagName + " id='" + pe.id + "' class='" + pe.className + "'>\\n";
-                }
-                return info;
-            }''')
-            log.info(f"Booking form:\n{page_info}")
+                # Count empty player name fields on the booking form
+                empty_slots = page.evaluate('''() => {
+                    const inputs = document.querySelectorAll("input.ftS-playerNameInput");
+                    let empty = 0;
+                    for (const inp of inputs) {
+                        if (!inp.value || inp.value.trim() === "") empty++;
+                    }
+                    return empty;
+                }''')
+                log.info(f"Tee time '{button_text}': {empty_slots} empty slot(s)")
+
+                if empty_slots >= MIN_OPEN_SLOTS:
+                    selected_time = button_text
+                    log.info(f"Found tee time with {empty_slots} open slots: '{button_text}'")
+                    break
+                else:
+                    log.info(f"Only {empty_slots} open slots, need {MIN_OPEN_SLOTS}. Going back...")
+                    page.go_back(wait_until="networkidle", timeout=15000)
+                    time.sleep(2)
+                    # Re-locate buttons after navigation
+                    buttons = page.locator('a.teetime_button')
+
+            if not selected_time:
+                log.error(f"No tee time found with {MIN_OPEN_SLOTS} open slots.")
+                take_screenshot(page, "error_no_open_slots")
+                sys.exit(1)
+
+            take_screenshot(page, "after_slot_click")
 
             # ---------------------------------------------------------------
             # Step 9 — Add the three additional members
             # ---------------------------------------------------------------
             log.info("Adding guest members to the booking...")
 
-            # Try clicking Members button/tab if present
+            # Click the "Members" tab in the right panel to enable member search
             try:
-                members_btn = page.locator('text="Members", a:has-text("Members"), button:has-text("Members")').first
-                if members_btn.is_visible(timeout=3000):
-                    members_btn.click()
+                members_tab = page.locator('a:has-text("Members"), button:has-text("Members")').first
+                if members_tab.is_visible(timeout=3000):
+                    members_tab.click()
                     time.sleep(1)
+                    log.info("Clicked Members tab.")
             except Exception:
-                log.info("No separate Members button found.")
+                log.info("No separate Members tab found.")
 
-            for i, (name, member_id_guest) in enumerate(GUEST_MEMBERS, start=2):
-                log.info(f"Adding player {i}: {name} ({member_id_guest})")
+            # Find empty player slots (slot_player_row_N containers)
+            empty_slot_indices = page.evaluate('''() => {
+                const indices = [];
+                for (let i = 0; i < 4; i++) {
+                    const row = document.getElementById("slot_player_row_" + i);
+                    if (row) {
+                        const nameInput = row.querySelector("input.ftS-playerNameInput");
+                        if (nameInput && (!nameInput.value || nameInput.value.trim() === "")) {
+                            indices.push(i);
+                        }
+                    }
+                }
+                return indices;
+            }''')
+            log.info(f"Empty player slot indices: {empty_slot_indices}")
+
+            # Skip the first empty slot (auto-fills with account owner), add guests to the rest
+            guest_slots = empty_slot_indices[1:]  # First empty slot is ours
+            for slot_idx, (name, member_id_guest) in zip(guest_slots, GUEST_MEMBERS):
+                log.info(f"Adding {name} ({member_id_guest}) to slot {slot_idx}...")
                 try:
-                    # ForeTees player search fields — try multiple selector patterns
-                    search_field = page.locator(
-                        f'input[name*="player{i}"], '
-                        f'input[name*="slot{i}"], '
-                        f'input[name*="mem{i}"], '
-                        f'input.playerSearch:nth-of-type({i}), '
-                        f'input[placeholder*="Member"]:nth-of-type({i-1})'
-                    ).first
-
-                    search_field.click()
-                    search_field.fill(member_id_guest)
-                    time.sleep(0.8)
-
-                    # Click the autocomplete result
-                    autocomplete_result = page.locator(
-                        f'text="{name}", '
-                        f'text="{member_id_guest}", '
-                        f'.autocomplete-item:first-child, '
-                        f'.suggestion:first-child, '
-                        f'li:has-text("{name.split()[1]}")'
-                    ).first
-                    autocomplete_result.click(timeout=3000)
-                    log.info(f"Added {name} to slot {i}.")
+                    # Click the empty player name field to activate it
+                    name_input = page.locator(f'#slot_player_row_{slot_idx} input.ftS-playerNameInput')
+                    name_input.click()
                     time.sleep(0.5)
 
+                    # Type the member ID into the member search field
+                    search_input = page.locator('input.ftMs-input').first
+                    search_input.fill(member_id_guest)
+                    time.sleep(1)
+
+                    # Click the matching autocomplete result
+                    result = page.locator(f'li:has-text("{name.split()[1]}"), .ftMs-result:has-text("{name.split()[1]}")').first
+                    result.click(timeout=5000)
+                    log.info(f"Added {name} to slot {slot_idx}.")
+                    time.sleep(1)
+
                 except Exception as e:
-                    log.warning(f"Could not add {name} to slot {i}: {e}")
-                    take_screenshot(page, f"error_player{i}")
+                    log.warning(f"Could not add {name} to slot {slot_idx}: {e}")
+                    take_screenshot(page, f"error_player_slot{slot_idx}")
 
             # ---------------------------------------------------------------
             # Step 10 — Confirm and save the booking
             # ---------------------------------------------------------------
             log.info("Confirming the booking...")
+            take_screenshot(page, "before_submit")
             try:
                 confirm_btn = page.locator(
-                    'input[value="Submit"], '
-                    'input[value="Confirm"], '
+                    'button:has-text("Submit Changes"), '
+                    'input[value="Submit Changes"], '
                     'button:has-text("Submit"), '
-                    'button:has-text("Confirm"), '
-                    'button:has-text("Save"), '
                     'input[type="submit"]'
                 ).first
                 confirm_btn.click(timeout=5000)
                 page.wait_for_load_state("networkidle", timeout=15000)
-                log.info("Booking confirmed!")
-                time.sleep(2)
+                log.info("Booking submitted!")
+                time.sleep(3)
             except Exception as e:
-                log.error(f"Could not click confirm/save button: {e}")
-                take_screenshot(page, "error")
+                log.error(f"Could not click Submit Changes button: {e}")
+                take_screenshot(page, "error_submit")
                 sys.exit(1)
 
             take_screenshot(page, "booking_confirmation")
