@@ -2,8 +2,8 @@
 # Runs every Monday morning to book Saturday tee times.
 #
 # DST REMINDER — Update the cron schedule twice a year:
-#   Summer (MDT, mid-Mar to early-Nov): 45 13 * * 1  (6:45am MDT = 1:45pm UTC)
-#   Winter (MST, early-Nov to mid-Mar): 45 12 * * 1  (6:45am MST = 12:45pm UTC)
+#   Summer (MDT, mid-Mar to early-Nov): 45 12 * * 1  (6:45am MDT = 12:45pm UTC)
+#   Winter (MST, early-Nov to mid-Mar): 45 13 * * 1  (6:45am MST = 1:45pm UTC)
 #
 # Denver DST dates:
 #   Spring forward: 2nd Sunday of March
@@ -13,8 +13,8 @@ name: Book Tee Time
 
 on:
   schedule:
-    # 6:45am MDT (UTC-7) — currently in summer/MDT
-    - cron: '45 13 * * 1'
+    # 6:45am MDT (UTC-6) — currently in summer/MDT
+    - cron: '45 12 * * 1'
   workflow_dispatch:  # Manual trigger for testing
 
 jobs:

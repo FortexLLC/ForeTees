@@ -25,7 +25,7 @@ MOUNTAIN_TZ = "America/Denver"  # Handles MDT/MST automatically via pytz
 
 # TEST MODE: Set to a specific date string (e.g. "19") to override Saturday selection,
 # and skip the 7am wait. Set to None for production.
-TEST_DAY_OVERRIDE = "19"  # Thursday March 19 for testing
+TEST_DAY_OVERRIDE = None  # Set to a day string (e.g. "19") for testing
 
 # Members to add to slots 2-4 (name, ForeTees member ID)
 GUEST_MEMBERS = [
