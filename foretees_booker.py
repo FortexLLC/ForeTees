@@ -180,6 +180,7 @@ def run():
             tee_times_link = page.locator('text="Tee Times"').first
             if tee_times_link.is_visible():
                 tee_times_link.click()
+                page.wait_for_load_state("networkidle", timeout=10000)
 
             make_tee_times = page.locator('text="Make, Change, or View Tee Times"').first
             if make_tee_times.is_visible(timeout=5000):
