@@ -23,7 +23,7 @@ jobs:
         env:
           FORETEES_MEMBER: ${{ secrets.FORETEES_MEMBER }}
           FORETEES_PASSWORD: ${{ secrets.FORETEES_PASSWORD }}
-        run: python diagnose_teesheet.py
+        run: python release_tee_time.py
 
       - name: Upload results
         if: always()
