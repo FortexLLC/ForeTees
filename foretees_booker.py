@@ -289,6 +289,21 @@ def run():
             }''', MIN_OPEN_SLOTS)
 
             if not slot_index:
+                # Log what we found for debugging
+                debug_info = page.evaluate('''() => {
+                    const rows = document.querySelectorAll(".rwdTr");
+                    let info = "All rows with time slots:\\n";
+                    for (const row of rows) {
+                        const ts = row.querySelector(".time_slot");
+                        if (!ts) continue;
+                        const pgCols = row.querySelectorAll(".pgCol");
+                        let open = 0;
+                        for (const c of pgCols) { if (c.textContent.trim() === "") open++; }
+                        info += ts.textContent.trim() + " — pgCols:" + pgCols.length + " open:" + open + " classes:" + row.className + "\\n";
+                    }
+                    return info;
+                }''')
+                log.info(f"Slot scan details:\n{debug_info}")
                 log.error(f"No tee time found with at least {MIN_OPEN_SLOTS} open slots.")
                 take_screenshot(page, "error_no_slots")
                 sys.exit(1)
