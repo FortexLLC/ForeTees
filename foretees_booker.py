@@ -269,11 +269,15 @@ def run():
                     const timeSlot = row.querySelector(".time_slot");
                     if (!timeSlot) continue;
 
-                    // Count empty player columns (pgCol divs with no text content)
+                    // Count open player columns
+                    // pgCol divs that are truly empty (no spans with player names)
                     const pgCols = row.querySelectorAll(".pgCol");
                     let openSlots = 0;
                     for (const col of pgCols) {
-                        if (col.textContent.trim() === "") openSlots++;
+                        // A slot is open if it has no child divs/spans with text
+                        const spans = col.querySelectorAll("span");
+                        const hasPlayer = Array.from(spans).some(s => s.textContent.trim().length > 0);
+                        if (!hasPlayer) openSlots++;
                     }
 
                     if (openSlots >= minOpen) {
@@ -300,13 +304,13 @@ def run():
                         let open = 0;
                         let details = [];
                         for (const c of pgCols) {
+                            const spans = c.querySelectorAll("span");
+                            const hasPlayer = Array.from(spans).some(s => s.textContent.trim().length > 0);
+                            if (!hasPlayer) open++;
                             const t = c.textContent.trim();
-                            const inner = c.innerHTML.trim();
-                            if (t === "") open++;
-                            details.push("'" + t.substring(0,20) + "' html:" + inner.substring(0,40));
+                            details.push(hasPlayer ? t.substring(0,20) : "OPEN");
                         }
                         info += ts.textContent.trim() + " — open:" + open + "/" + pgCols.length
-                             + " class:" + row.className.replace("rwdTr ", "")
                              + " [" + details.join(" | ") + "]\\n";
                     }
                     return info;
