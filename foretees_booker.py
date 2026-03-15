@@ -316,15 +316,15 @@ def run():
             # ---------------------------------------------------------------
             log.info("Adding guest members to the booking...")
 
-            # Click the "Members" tab in the right panel to enable member search
+            # Dismiss the "Adding a Member or Guest" info dialog if it appears
             try:
-                members_tab = page.locator('a:has-text("Members"), button:has-text("Members")').first
-                if members_tab.is_visible(timeout=3000):
-                    members_tab.click()
-                    time.sleep(1)
-                    log.info("Clicked Members tab.")
+                close_btn = page.locator('button:has-text("Close")').first
+                if close_btn.is_visible(timeout=2000):
+                    close_btn.click()
+                    time.sleep(0.5)
+                    log.info("Dismissed info dialog.")
             except Exception:
-                log.info("No separate Members tab found.")
+                pass
 
             # Find empty player slots (slot_player_row_N containers)
             empty_slot_indices = page.evaluate('''() => {
@@ -343,29 +343,49 @@ def run():
             log.info(f"Empty player slot indices: {empty_slot_indices}")
 
             # Skip the first empty slot (auto-fills with account owner), add guests to the rest
+            # Slot indices are 0-based; player numbers displayed are 1-based
             guest_slots = empty_slot_indices[1:]  # First empty slot is ours
             for slot_idx, (name, member_id_guest) in zip(guest_slots, GUEST_MEMBERS):
-                log.info(f"Adding {name} ({member_id_guest}) to slot {slot_idx}...")
+                player_num = slot_idx + 1  # 1-based display number
+                log.info(f"Adding {name} ({member_id_guest}) to player {player_num} (slot {slot_idx})...")
                 try:
-                    # Click the empty player name field to activate it
-                    name_input = page.locator(f'#slot_player_row_{slot_idx} input.ftS-playerNameInput')
-                    name_input.click()
+                    # Click the player row to set the pointer to that slot
+                    page.locator(f'#slot_player_row_{slot_idx}').click()
                     time.sleep(0.5)
 
-                    # Type the member ID into the member search field
-                    search_input = page.locator('input.ftMs-input').first
-                    search_input.fill(member_id_guest)
-                    time.sleep(1)
+                    # Dismiss any dialog that pops up
+                    try:
+                        dlg_close = page.locator('button:has-text("Close")').first
+                        if dlg_close.is_visible(timeout=1000):
+                            dlg_close.click()
+                            time.sleep(0.3)
+                    except Exception:
+                        pass
 
-                    # Click the matching autocomplete result
-                    result = page.locator(f'li:has-text("{name.split()[1]}"), .ftMs-result:has-text("{name.split()[1]}")').first
+                    # Click the "Members" tab to show the member search
+                    members_tab = page.locator('a:has-text("Members")').first
+                    members_tab.click(timeout=3000)
+                    time.sleep(1)
+                    log.info("Clicked Members tab.")
+
+                    # Type the member's last name into the search field
+                    last_name = name.split()[1]
+                    search_input = page.locator('input.ftMs-input').first
+                    search_input.click(timeout=3000)
+                    search_input.fill(last_name)
+                    time.sleep(1.5)
+                    log.info(f"Typed '{last_name}' in member search.")
+                    take_screenshot(page, f"search_slot{slot_idx}")
+
+                    # Click the matching result from the search results
+                    result = page.locator(f'li:has-text("{last_name}"), .ftMs-resultName:has-text("{last_name}")').first
                     result.click(timeout=5000)
-                    log.info(f"Added {name} to slot {slot_idx}.")
+                    log.info(f"Added {name} to player {player_num}.")
                     time.sleep(1)
 
                 except Exception as e:
-                    log.warning(f"Could not add {name} to slot {slot_idx}: {e}")
-                    take_screenshot(page, f"error_player_slot{slot_idx}")
+                    log.warning(f"Could not add {name} to player {player_num}: {e}")
+                    take_screenshot(page, f"error_player{player_num}")
 
             # ---------------------------------------------------------------
             # Step 10 — Confirm and save the booking
@@ -374,8 +394,8 @@ def run():
             take_screenshot(page, "before_submit")
             try:
                 confirm_btn = page.locator(
-                    'button:has-text("Submit Changes"), '
-                    'input[value="Submit Changes"], '
+                    'button:has-text("Submit Request"), '
+                    'input[value="Submit Request"], '
                     'button:has-text("Submit"), '
                     'input[type="submit"]'
                 ).first
@@ -384,7 +404,7 @@ def run():
                 log.info("Booking submitted!")
                 time.sleep(3)
             except Exception as e:
-                log.error(f"Could not click Submit Changes button: {e}")
+                log.error(f"Could not click Submit Request button: {e}")
                 take_screenshot(page, "error_submit")
                 sys.exit(1)
 
