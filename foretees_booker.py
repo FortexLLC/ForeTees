@@ -258,79 +258,28 @@ def run():
             log.info(f"Scanning for tee time with at least {MIN_OPEN_SLOTS} open slots...")
 
             # ForeTees div-based tee sheet:
-            #   Each row: <div class="rwdTr ...">
-            #   Player columns: <div class="rwdTd pgCol"> — empty = open slot
-            #   Fully booked rows have class "hasRowColor", open rows have "noRowColor"
-            #   Partially booked rows may have "hasRowColor" but with some empty pgCol divs
-            slot_index = page.evaluate('''(minOpen) => {
-                const rows = document.querySelectorAll(".rwdTr");
-                for (let i = 0; i < rows.length; i++) {
-                    const row = rows[i];
-                    const timeSlot = row.querySelector(".time_slot");
-                    if (!timeSlot) continue;
+            #   Booked rows: have .time_slot div with time text + player names in .pgCol spans
+            #   Available rows: have .teetime_button <a> tag (no .time_slot) with data-ftjson
+            #   The teetime_button is what you click to book an open slot
+            #
+            # For fully open tee times (all 4 slots), the row has a teetime_button
+            # and all pgCol divs are empty.
 
-                    // Count open player columns
-                    // pgCol divs that are truly empty (no spans with player names)
-                    const pgCols = row.querySelectorAll(".pgCol");
-                    let openSlots = 0;
-                    for (const col of pgCols) {
-                        // A slot is open if it has no child divs/spans with text
-                        const spans = col.querySelectorAll("span");
-                        const hasPlayer = Array.from(spans).some(s => s.textContent.trim().length > 0);
-                        if (!hasPlayer) openSlots++;
-                    }
+            # First, find all available tee time buttons
+            buttons = page.locator('a.teetime_button')
+            button_count = buttons.count()
+            log.info(f"Found {button_count} available teetime_button(s)")
 
-                    if (openSlots >= minOpen) {
-                        return {
-                            index: i,
-                            time: timeSlot.textContent.trim(),
-                            openSlots: openSlots,
-                            totalPgCols: pgCols.length
-                        };
-                    }
-                }
-                return null;
-            }''', MIN_OPEN_SLOTS)
-
-            if not slot_index:
-                # Log detailed info for debugging
-                debug_info = page.evaluate('''() => {
-                    const rows = document.querySelectorAll(".rwdTr");
-                    let info = "All " + rows.length + " rwdTr rows:\\n";
-                    let noTimeSlotCount = 0;
-                    for (let i = 0; i < rows.length; i++) {
-                        const row = rows[i];
-                        const ts = row.querySelector(".time_slot");
-                        if (!ts) {
-                            if (noTimeSlotCount < 3) {
-                                info += "Row " + i + " NO time_slot — classes:" + row.className
-                                     + " html:" + row.outerHTML.substring(0, 300) + "\\n";
-                            }
-                            noTimeSlotCount++;
-                            continue;
-                        }
-                        const pgCols = row.querySelectorAll(".pgCol");
-                        let open = 0;
-                        for (const c of pgCols) {
-                            const spans = c.querySelectorAll("span");
-                            const hasPlayer = Array.from(spans).some(s => s.textContent.trim().length > 0);
-                            if (!hasPlayer) open++;
-                        }
-                        info += "Row " + i + " " + ts.textContent.trim() + " open:" + open + "/" + pgCols.length + "\\n";
-                    }
-                    info += "Rows without time_slot: " + noTimeSlotCount;
-                    return info;
-                }''')
-                log.info(f"Slot scan details:\n{debug_info}")
-                log.error(f"No tee time found with at least {MIN_OPEN_SLOTS} open slots.")
+            if button_count == 0:
+                log.error("No available tee time buttons found on the tee sheet.")
                 take_screenshot(page, "error_no_slots")
                 sys.exit(1)
 
-            log.info(f"Found tee time: {slot_index['time']} with {slot_index['openSlots']} open slots")
-
-            # Click the time_slot div in that row
-            target_row = page.locator('.rwdTr').nth(slot_index['index'])
-            target_row.locator('.time_slot').click()
+            # Click the first available teetime_button
+            first_button = buttons.first
+            button_text = first_button.text_content().strip()
+            log.info(f"Clicking first available tee time button: '{button_text}'")
+            first_button.click()
             log.info(f"Clicked tee time {slot_index['time']}. Waiting for booking form...")
             time.sleep(3)
             page.wait_for_load_state("networkidle", timeout=15000)
