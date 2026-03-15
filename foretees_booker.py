@@ -420,37 +420,28 @@ def run():
                     search_input.fill("")  # Clear previous search
                     search_input.type(last_name, delay=50)  # Type with delay for autocomplete
 
-                    # Wait for autocomplete results to appear, then click via JS
-                    # jQuery UI autocomplete renders results as <li><a> or <li><div>
-                    # We find the smallest element containing the member ID text
+                    # Wait for autocomplete result to appear and click it
+                    # ForeTees renders results as div.ftMs-listItem elements
                     clicked = page.evaluate(f'''(memberId) => {{
                         return new Promise((resolve) => {{
                             let attempts = 0;
                             const interval = setInterval(() => {{
                                 attempts++;
-                                // Find all elements whose textContent contains the member ID
-                                const candidates = [];
-                                const allEls = document.querySelectorAll("li, a, div, span");
-                                for (const el of allEls) {{
+                                // First try: ftMs-listItem (ForeTees member search results)
+                                const items = document.querySelectorAll(".ftMs-listItem");
+                                for (const el of items) {{
                                     if (el.textContent.includes(memberId) &&
                                         el.offsetWidth > 0 && el.offsetHeight > 0) {{
-                                        candidates.push(el);
+                                        el.click();
+                                        clearInterval(interval);
+                                        resolve({{
+                                            found: true,
+                                            tag: el.tagName,
+                                            class: el.className.toString().substring(0, 80),
+                                            text: el.textContent.trim().substring(0, 80)
+                                        }});
+                                        return;
                                     }}
-                                }}
-                                // Pick the smallest (most specific) matching element
-                                if (candidates.length > 0) {{
-                                    candidates.sort((a, b) => a.textContent.length - b.textContent.length);
-                                    const el = candidates[0];
-                                    el.click();
-                                    clearInterval(interval);
-                                    resolve({{
-                                        found: true,
-                                        tag: el.tagName,
-                                        class: el.className.toString().substring(0, 80),
-                                        text: el.textContent.substring(0, 80),
-                                        total: candidates.length
-                                    }});
-                                    return;
                                 }}
                                 if (attempts > 50) {{
                                     clearInterval(interval);
