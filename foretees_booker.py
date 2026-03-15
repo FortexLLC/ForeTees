@@ -464,6 +464,26 @@ def run():
                 take_screenshot(page, "error_incomplete")
                 sys.exit(1)
 
+            # ---------------------------------------------------------------
+            # Step 10b — Set transportation mode for all players
+            # ---------------------------------------------------------------
+            log.info("Setting transportation mode (WA = Walk) for all players...")
+            trans_set = page.evaluate('''() => {
+                const selects = document.querySelectorAll("select");
+                let count = 0;
+                for (const sel of selects) {
+                    // Find transportation selects (they have WA, MC, etc. options)
+                    const options = Array.from(sel.options).map(o => o.value);
+                    if (options.includes("WA")) {
+                        sel.value = "WA";
+                        sel.dispatchEvent(new Event("change", { bubbles: true }));
+                        count++;
+                    }
+                }
+                return count;
+            }''')
+            log.info(f"Set transportation mode on {trans_set} player(s).")
+
             log.info("All 4 players filled. Confirming the booking...")
             take_screenshot(page, "before_submit")
             try:
@@ -474,6 +494,28 @@ def run():
                     'input[value="Submit Request"]'
                 ).first
                 confirm_btn.click(timeout=5000)
+                time.sleep(3)
+
+                # Check for and dismiss any error/validation dialog
+                try:
+                    dialog_close = page.locator('button:has-text("Close")').first
+                    if dialog_close.is_visible(timeout=2000):
+                        dialog_text = page.locator('.ui-dialog').first.text_content()
+                        log.warning(f"Dialog appeared after submit: {dialog_text}")
+                        take_screenshot(page, "error_dialog")
+                        dialog_close.click()
+                        time.sleep(1)
+                        # Retry submit
+                        confirm_btn = page.locator(
+                            'a:has-text("Submit Request"), '
+                            'button:has-text("Submit Request"), '
+                            'input[value="Submit Request"]'
+                        ).first
+                        confirm_btn.click(timeout=5000)
+                        time.sleep(3)
+                except Exception:
+                    pass
+
                 page.wait_for_load_state("networkidle", timeout=15000)
                 log.info("Booking submitted!")
                 time.sleep(3)
