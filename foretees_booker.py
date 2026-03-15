@@ -282,6 +282,26 @@ def run():
                 time.sleep(3)
                 page.wait_for_load_state("networkidle", timeout=15000)
 
+                # On first button, dump the ancestor chain of ftMs-input for debugging
+                if btn_idx == 0:
+                    ancestor_info = page.evaluate('''() => {
+                        let el = document.querySelector("input.ftMs-input");
+                        if (!el) return "ftMs-input NOT FOUND in DOM!";
+                        let info = "";
+                        let depth = 0;
+                        while (el && depth < 15) {
+                            const cs = getComputedStyle(el);
+                            info += depth + ": <" + el.tagName + " id='" + el.id + "' class='"
+                                  + (el.className || "").toString().substring(0, 80)
+                                  + "'> display=" + cs.display + " visibility=" + cs.visibility
+                                  + " height=" + cs.height + " overflow=" + cs.overflow + "\\n";
+                            el = el.parentElement;
+                            depth++;
+                        }
+                        return info;
+                    }''')
+                    log.info(f"ftMs-input ancestor chain:\\n{ancestor_info}")
+
                 # Count empty player name fields on the booking form
                 empty_slots = page.evaluate('''() => {
                     const inputs = document.querySelectorAll("input.ftS-playerNameInput");
