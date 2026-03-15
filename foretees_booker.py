@@ -344,30 +344,40 @@ def run():
 
             # Fill all empty slots with guests (slot 0 has the account owner)
             # Slot indices are 0-based; player numbers displayed are 1-based
-            # First, dump the right panel HTML to understand tab structure
-            tabs_html = page.evaluate('''() => {
-                // Find the area with Partners/Members/Guests tabs
-                const allLinks = document.querySelectorAll("a");
-                let tabInfo = "";
-                for (const a of allLinks) {
-                    const text = a.textContent.trim();
-                    if (text === "Members" || text === "Partners" || text === "Guests") {
-                        tabInfo += "<a href='" + a.href + "' id='" + a.id + "' class='" + a.className
-                                 + "' visible=" + (a.offsetParent !== null) + " display="
-                                 + getComputedStyle(a).display + ">" + text + "</a>\\n";
+            # Dump the HTML around "Select Player" to understand tab structure
+            panel_dump = page.evaluate('''() => {
+                // Walk up from ftMs-input to find the panel container
+                const si = document.querySelector("input.ftMs-input");
+                let container = si;
+                for (let i = 0; i < 10 && container; i++) {
+                    container = container.parentElement;
+                }
+                // Also find "Select Player" text
+                const allEls = document.querySelectorAll("*");
+                let selectPlayer = null;
+                for (const el of allEls) {
+                    if (el.childNodes.length <= 3 && el.textContent.includes("Select Player")) {
+                        selectPlayer = el;
+                        break;
                     }
                 }
-                // Also check for the search input
-                const searchInputs = document.querySelectorAll("input.ftMs-input");
-                tabInfo += "ftMs-input count: " + searchInputs.length + "\\n";
-                for (const si of searchInputs) {
-                    tabInfo += "  ftMs-input visible=" + (si.offsetParent !== null)
-                             + " display=" + getComputedStyle(si).display
-                             + " parent=" + si.parentElement.className + "\\n";
+                let html = "=== ftMs ancestor chain ===\\n";
+                let node = si;
+                for (let i = 0; i < 8 && node; i++) {
+                    html += "  " + node.tagName + "#" + node.id + "." + (node.className || "").toString().substring(0, 50)
+                          + " visible=" + (node.offsetParent !== null) + "\\n";
+                    node = node.parentElement;
                 }
-                return tabInfo;
+                if (selectPlayer) {
+                    html += "\\n=== Select Player area ===\\n";
+                    html += selectPlayer.parentElement.outerHTML.substring(0, 3000);
+                }
+                // Check for iframes
+                const iframes = document.querySelectorAll("iframe");
+                html += "\\n\\niframes: " + iframes.length;
+                return html;
             }''')
-            log.info(f"Tab structure:\\n{tabs_html}")
+            log.info(f"Panel dump:\\n{panel_dump}")
 
             for slot_idx, (name, member_id_guest) in zip(empty_slot_indices, GUEST_MEMBERS):
                 player_num = slot_idx + 1  # 1-based display number
