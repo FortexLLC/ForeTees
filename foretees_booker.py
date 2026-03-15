@@ -309,7 +309,18 @@ def run():
             # Click the winning button and wait for booking form to appear
             buttons = page.locator('a.teetime_button')
             buttons.nth(target['index']).click()
-            page.locator('input.ftS-playerNameInput').first.wait_for(state="visible", timeout=10000)
+            try:
+                page.locator('input.ftS-playerNameInput').first.wait_for(state="visible", timeout=10000)
+            except Exception:
+                # Check if we hit "Tee Time Not Allowed" page
+                if "not allowed" in page.text_content("body").lower():
+                    log.warning(f"Tee Time Not Allowed for '{selected_time}'. Clicking Go Back...")
+                    take_screenshot(page, "tee_time_not_allowed")
+                    page.locator('a:has-text("Go Back"), button:has-text("Go Back"), input[value="Go Back"]').first.click()
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                    log.error("You are already in another tee time. Cancel that booking first.")
+                take_screenshot(page, "error_after_click")
+                sys.exit(1)
             log.info(f"Clicked tee time '{selected_time}' — booking form loaded.")
             take_screenshot(page, "after_slot_click")
 
@@ -484,6 +495,14 @@ def run():
             if filled_count < 4:
                 log.error(f"Only {filled_count} players filled — expected 4. NOT submitting.")
                 take_screenshot(page, "error_incomplete")
+                # Click "Go Back" to release the tee time so we don't block future attempts
+                try:
+                    go_back = page.locator('a:has-text("Go Back"), button:has-text("Go Back"), input[value="Go Back"]').first
+                    go_back.click(timeout=5000)
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                    log.info("Clicked 'Go Back' to release the tee time.")
+                except Exception as e:
+                    log.warning(f"Could not click Go Back: {e}")
                 sys.exit(1)
 
             # ---------------------------------------------------------------
