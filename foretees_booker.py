@@ -162,9 +162,36 @@ def run():
             page.fill('input[placeholder="Username"]', member_id)
             page.fill('input[placeholder="Password"]', password)
 
-            # Submit the login form — "SIGN IN" button (could be button, a, div, or input)
-            sign_in = page.locator('text="SIGN IN"').first
-            sign_in.click(timeout=5000)
+            # Dump form HTML for debugging selectors
+            form_html = page.evaluate('document.querySelector("form") ? document.querySelector("form").outerHTML : document.body.innerHTML.substring(0, 3000)')
+            log.info(f"Form HTML:\n{form_html}")
+
+            # Submit the login form — try multiple approaches
+            submitted = False
+            for selector in [
+                'text="SIGN IN"',
+                'text="Sign In"',
+                'text="Sign in"',
+                ':text-is("SIGN IN")',
+                'button >> text=SIGN',
+                'input[type="submit"]',
+                'button[type="submit"]',
+                '[role="button"]:has-text("Sign")',
+            ]:
+                try:
+                    el = page.locator(selector).first
+                    if el.is_visible(timeout=1000):
+                        el.click()
+                        submitted = True
+                        log.info(f"Clicked sign-in with selector: {selector}")
+                        break
+                except Exception:
+                    continue
+
+            if not submitted:
+                # Last resort: submit the form directly
+                log.info("No button found, submitting form via JavaScript")
+                page.evaluate('document.querySelector("form").submit()')
             page.wait_for_load_state("networkidle", timeout=15000)
             log.info("Login submitted, waiting for page to load...")
             time.sleep(3)
