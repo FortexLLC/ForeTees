@@ -280,7 +280,7 @@ def run():
             button_text = first_button.text_content().strip()
             log.info(f"Clicking first available tee time button: '{button_text}'")
             first_button.click()
-            log.info(f"Clicked tee time {slot_index['time']}. Waiting for booking form...")
+            log.info(f"Clicked tee time '{button_text}'. Waiting for booking form...")
             time.sleep(3)
             page.wait_for_load_state("networkidle", timeout=15000)
             take_screenshot(page, "after_slot_click")
