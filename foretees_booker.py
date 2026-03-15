@@ -343,121 +343,58 @@ def run():
             log.info(f"Empty player slot indices: {empty_slot_indices}")
 
             # Fill all empty slots with guests (slot 0 has the account owner)
-            # Slot indices are 0-based; player numbers displayed are 1-based
-            # Dump the HTML around "Select Player" to understand tab structure
-            panel_dump = page.evaluate('''() => {
-                // Walk up from ftMs-input to find the panel container
-                const si = document.querySelector("input.ftMs-input");
-                let container = si;
-                for (let i = 0; i < 10 && container; i++) {
-                    container = container.parentElement;
+            # From the screen recording: the Members tab search is in the right
+            # panel. The pointer starts at Player #2, and auto-advances after
+            # each member is added. Just type in search and click results.
+
+            # First, ensure the Members tab is active via jQuery UI tabs
+            page.evaluate('''() => {
+                // Try jQuery UI tabs API to activate Members tab (index 1)
+                if (typeof jQuery !== "undefined") {
+                    try { jQuery("#playerSelectTabs, .ui-tabs").tabs("option", "active", 1); } catch(e) {}
                 }
-                // Also find "Select Player" text
-                const allEls = document.querySelectorAll("*");
-                let selectPlayer = null;
-                for (const el of allEls) {
-                    if (el.childNodes.length <= 3 && el.textContent.includes("Select Player")) {
-                        selectPlayer = el;
-                        break;
-                    }
+                // Also try showing the search container directly
+                const ftMs = document.querySelector(".ftMs-search, .ftMs-container");
+                if (ftMs) ftMs.style.display = "block";
+                // Show all ancestor elements of ftMs-input
+                let el = document.querySelector("input.ftMs-input");
+                while (el) {
+                    el.style.display = el.style.display === "none" ? "block" : el.style.display;
+                    el.style.visibility = "visible";
+                    el = el.parentElement;
                 }
-                let html = "=== ftMs ancestor chain ===\\n";
-                let node = si;
-                for (let i = 0; i < 8 && node; i++) {
-                    html += "  " + node.tagName + "#" + node.id + "." + (node.className || "").toString().substring(0, 50)
-                          + " visible=" + (node.offsetParent !== null) + "\\n";
-                    node = node.parentElement;
-                }
-                if (selectPlayer) {
-                    html += "\\n=== Select Player area ===\\n";
-                    html += selectPlayer.parentElement.outerHTML.substring(0, 3000);
-                }
-                // Check for iframes
-                const iframes = document.querySelectorAll("iframe");
-                html += "\\n\\niframes: " + iframes.length;
-                return html;
             }''')
-            log.info(f"Panel dump:\\n{panel_dump}")
+            time.sleep(1)
+
+            # Check if search input is now visible
+            search_visible = page.evaluate('''() => {
+                const si = document.querySelector("input.ftMs-input");
+                if (!si) return "not found";
+                return "visible=" + (si.offsetParent !== null) + " display=" + getComputedStyle(si).display;
+            }''')
+            log.info(f"After tab activation: ftMs-input {search_visible}")
+            take_screenshot(page, "after_tab_activation")
 
             for slot_idx, (name, member_id_guest) in zip(empty_slot_indices, GUEST_MEMBERS):
                 player_num = slot_idx + 1  # 1-based display number
-                log.info(f"Adding {name} ({member_id_guest}) to player {player_num} (slot {slot_idx})...")
+                last_name = name.split()[1]
+                log.info(f"Adding {name} ({member_id_guest}) to player {player_num}...")
                 try:
-                    # Click the player row to set the pointer to that slot
-                    page.locator(f'#slot_player_row_{slot_idx}').click()
-                    time.sleep(0.5)
-
-                    # Dismiss any dialog that pops up
-                    try:
-                        dlg_close = page.locator('button:has-text("Close")').first
-                        if dlg_close.is_visible(timeout=1000):
-                            dlg_close.click()
-                            time.sleep(0.3)
-                    except Exception:
-                        pass
-
-                    # Click the visible "Members" tab in the right panel
-                    # Try multiple strategies to find and click it
-                    clicked = False
-
-                    # Strategy 1: Click visible Members link (not the hidden searchmem one)
-                    members_links = page.locator('a:has-text("Members")')
-                    for i in range(members_links.count()):
-                        link = members_links.nth(i)
-                        if link.is_visible():
-                            log.info(f"Found visible Members link #{i}")
-                            link.click(no_wait_after=True)
-                            clicked = True
-                            break
-
-                    if not clicked:
-                        # Strategy 2: Click via JavaScript on visible element
-                        log.info("No visible Members link found, trying JS...")
-                        page.evaluate('''() => {
-                            const links = document.querySelectorAll("a, li, span, div");
-                            for (const el of links) {
-                                if (el.textContent.trim() === "Members" && el.offsetParent !== null) {
-                                    el.click();
-                                    return true;
-                                }
-                            }
-                            return false;
-                        }''')
-
-                    time.sleep(2)
-                    take_screenshot(page, f"members_tab_slot{slot_idx}")
-
-                    # Type the member number into the search field
+                    # Type the last name into the member search field
                     search_input = page.locator('input.ftMs-input').first
-                    if not search_input.is_visible():
-                        log.info("Search input still not visible after tab click")
-                        # Try clicking the Members tab text directly with coordinates
-                        page.evaluate('''() => {
-                            const links = document.querySelectorAll("a, li");
-                            for (const el of links) {
-                                if (el.textContent.trim() === "Members" && el.offsetParent !== null) {
-                                    const evt = new MouseEvent("click", {bubbles: true, cancelable: true});
-                                    el.dispatchEvent(evt);
-                                    return el.outerHTML;
-                                }
-                            }
-                            return "none found";
-                        }''')
-                        time.sleep(2)
-                        take_screenshot(page, f"members_retry_slot{slot_idx}")
-
                     search_input.click(force=True, timeout=5000)
-                    search_input.fill(member_id_guest)
+                    search_input.fill("")  # Clear previous search
+                    search_input.type(last_name, delay=100)  # Type with delay for autocomplete
                     time.sleep(1.5)
-                    log.info(f"Typed '{member_id_guest}' in member search.")
+                    log.info(f"Typed '{last_name}' in member search.")
                     take_screenshot(page, f"search_slot{slot_idx}")
 
-                    # Click the matching result from the search results
-                    last_name = name.split()[1]
-                    result = page.locator(f'li:has-text("{last_name}"), .ftMs-resultName:has-text("{last_name}")').first
+                    # Click the matching result (format: "LastName_HNNNN, FirstName")
+                    result = page.locator(f'li:has-text("{member_id_guest}")').first
                     result.click(timeout=5000)
                     log.info(f"Added {name} to player {player_num}.")
                     time.sleep(1)
+                    take_screenshot(page, f"after_add_slot{slot_idx}")
 
                 except Exception as e:
                     log.warning(f"Could not add {name} to player {player_num}: {e}")
