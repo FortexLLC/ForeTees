@@ -158,40 +158,12 @@ def run():
             page.goto(FORETEES_URL, wait_until="networkidle", timeout=30000)
 
             log.info("Filling login credentials...")
-            # ForeTees login form — fields identified by placeholder text
-            page.fill('input[placeholder="Username"]', member_id)
-            page.fill('input[placeholder="Password"]', password)
+            # ForeTees login form — exact selectors from HTML inspection
+            page.fill('#user_name', member_id)
+            page.fill('#password', password)
 
-            # Dump form HTML for debugging selectors
-            form_html = page.evaluate('document.querySelector("form") ? document.querySelector("form").outerHTML : document.body.innerHTML.substring(0, 3000)')
-            log.info(f"Form HTML:\n{form_html}")
-
-            # Submit the login form — try multiple approaches
-            submitted = False
-            for selector in [
-                'text="SIGN IN"',
-                'text="Sign In"',
-                'text="Sign in"',
-                ':text-is("SIGN IN")',
-                'button >> text=SIGN',
-                'input[type="submit"]',
-                'button[type="submit"]',
-                '[role="button"]:has-text("Sign")',
-            ]:
-                try:
-                    el = page.locator(selector).first
-                    if el.is_visible(timeout=1000):
-                        el.click()
-                        submitted = True
-                        log.info(f"Clicked sign-in with selector: {selector}")
-                        break
-                except Exception:
-                    continue
-
-            if not submitted:
-                # Last resort: submit the form directly
-                log.info("No button found, submitting form via JavaScript")
-                page.evaluate('document.querySelector("form").submit()')
+            # Submit the login form
+            page.click('input.button-primary[type="submit"]')
             page.wait_for_load_state("networkidle", timeout=15000)
             log.info("Login submitted, waiting for page to load...")
             time.sleep(3)
