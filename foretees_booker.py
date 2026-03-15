@@ -162,8 +162,9 @@ def run():
             page.fill('input[placeholder="Username"]', member_id)
             page.fill('input[placeholder="Password"]', password)
 
-            # Submit the login form — "SIGN IN" button
-            page.click('button:has-text("SIGN IN"), input[value="SIGN IN"]')
+            # Submit the login form — "SIGN IN" button (could be button, a, div, or input)
+            sign_in = page.locator('text="SIGN IN"').first
+            sign_in.click(timeout=5000)
             page.wait_for_load_state("networkidle", timeout=15000)
             log.info("Login submitted, waiting for page to load...")
             time.sleep(3)
