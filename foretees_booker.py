@@ -287,37 +287,47 @@ def run():
             # ---------------------------------------------------------------
             log.info("Looking for first available tee time slot...")
 
-            # ForeTees v5 tee sheet selectors — try multiple patterns
-            available_slot = None
-            selectors = [
-                'td.pointed:not(.booked)',           # Common ForeTees pattern
-                'td[onclick]:not(.booked)',           # Clickable cells
-                'a:has-text("Available")',            # Text-based
-                '.teeSlot:not(.booked)',              # Class-based
-                'td.open',                            # Open slot
-                'tr.pointed td:first-child',          # First column of pointed row
-                'input[type="radio"]',                # Radio button selection
-                'tr[onclick]',                        # Clickable row
-            ]
-
-            for selector in selectors:
-                try:
-                    slot = page.locator(selector).first
-                    if slot.is_visible(timeout=2000):
-                        available_slot = slot
-                        log.info(f"Found available slot with selector: {selector}")
-                        break
-                except Exception:
-                    continue
-
-            if not available_slot:
+            # ForeTees uses div-based layout:
+            #   Available rows: class="rwdTr noRowColor" with empty player columns
+            #   Booked rows: class="rwdTr hasRowColor" with player names
+            # Click the time_slot div inside the first available row
+            available_row = page.locator('.rwdTr.noRowColor .time_slot').first
+            try:
+                available_row.wait_for(state="visible", timeout=5000)
+                time_text = available_row.text_content()
+                log.info(f"Found available tee time: {time_text}")
+                available_row.click()
+            except Exception:
                 log.error("No available tee time slots found.")
                 take_screenshot(page, "error")
                 sys.exit(1)
+            log.info("Clicked first available tee time. Waiting for booking form...")
+            time.sleep(3)
+            page.wait_for_load_state("networkidle", timeout=15000)
+            take_screenshot(page, "after_slot_click")
 
-            available_slot.click()
-            log.info("Clicked first available tee time. Waiting for slot lock...")
-            time.sleep(3)  # Wait for ForeTees to lock the slot
+            # Dump booking form HTML for debugging
+            form_html = page.evaluate('''() => {
+                // Look for input fields, forms, and player-related elements
+                const inputs = document.querySelectorAll("input[type=text], input[type=search], select");
+                let info = "Input fields found: " + inputs.length + "\\n";
+                for (const inp of inputs) {
+                    info += "  " + inp.tagName + " name=" + inp.name + " id=" + inp.id
+                         + " placeholder=" + (inp.placeholder || "") + " class=" + inp.className + "\\n";
+                }
+
+                // Look for player-related containers
+                const playerDivs = document.querySelectorAll("[class*=player], [class*=Player], [id*=player], [id*=Player]");
+                info += "\\nPlayer-related elements: " + playerDivs.length + "\\n";
+                for (const pd of playerDivs) {
+                    info += "  " + pd.tagName + " id=" + pd.id + " class=" + pd.className + "\\n";
+                }
+
+                // Check current URL
+                info += "\\nCurrent URL: " + window.location.href;
+                return info;
+            }''')
+            log.info(f"Booking form details:\n{form_html}")
 
             # ---------------------------------------------------------------
             # Step 9 — Add the three additional members
