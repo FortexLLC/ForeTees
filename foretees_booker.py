@@ -347,20 +347,42 @@ def run():
             # panel. The pointer starts at Player #2, and auto-advances after
             # each member is added. Just type in search and click results.
 
-            # First, ensure the Members tab is active via jQuery UI tabs
-            page.evaluate('''() => {
-                // Try jQuery UI tabs API to activate Members tab (index 1)
-                if (typeof jQuery !== "undefined") {
-                    try { jQuery("#playerSelectTabs, .ui-tabs").tabs("option", "active", 1); } catch(e) {}
+            # Dump the ancestor chain of ftMs-input to find what's hiding it
+            ancestor_info = page.evaluate('''() => {
+                let el = document.querySelector("input.ftMs-input");
+                if (!el) return "ftMs-input not found!";
+                let info = "";
+                let depth = 0;
+                while (el && depth < 15) {
+                    const cs = getComputedStyle(el);
+                    info += depth + ": <" + el.tagName + " id='" + el.id + "' class='" + (el.className || "").toString().substring(0, 60)
+                          + "'> computed: display=" + cs.display + " visibility=" + cs.visibility
+                          + " opacity=" + cs.opacity + " height=" + cs.height
+                          + " offsetParent=" + (el.offsetParent ? el.offsetParent.tagName : "null") + "\\n";
+                    el = el.parentElement;
+                    depth++;
                 }
-                // Also try showing the search container directly
-                const ftMs = document.querySelector(".ftMs-search, .ftMs-container");
-                if (ftMs) ftMs.style.display = "block";
-                // Show all ancestor elements of ftMs-input
+                return info;
+            }''')
+            log.info(f"ftMs-input ancestor chain:\\n{ancestor_info}")
+
+            # Force ALL ancestors visible using COMPUTED style check
+            page.evaluate('''() => {
                 let el = document.querySelector("input.ftMs-input");
                 while (el) {
-                    el.style.display = el.style.display === "none" ? "block" : el.style.display;
-                    el.style.visibility = "visible";
+                    const cs = getComputedStyle(el);
+                    if (cs.display === "none") {
+                        el.style.setProperty("display", "block", "important");
+                    }
+                    if (cs.visibility === "hidden") {
+                        el.style.setProperty("visibility", "visible", "important");
+                    }
+                    if (cs.opacity === "0") {
+                        el.style.setProperty("opacity", "1", "important");
+                    }
+                    if (parseInt(cs.height) === 0) {
+                        el.style.setProperty("height", "auto", "important");
+                    }
                     el = el.parentElement;
                 }
             }''')
@@ -372,8 +394,8 @@ def run():
                 if (!si) return "not found";
                 return "visible=" + (si.offsetParent !== null) + " display=" + getComputedStyle(si).display;
             }''')
-            log.info(f"After tab activation: ftMs-input {search_visible}")
-            take_screenshot(page, "after_tab_activation")
+            log.info(f"After forcing ancestors visible: ftMs-input {search_visible}")
+            take_screenshot(page, "after_force_visible")
 
             for slot_idx, (name, member_id_guest) in zip(empty_slot_indices, GUEST_MEMBERS):
                 player_num = slot_idx + 1  # 1-based display number
