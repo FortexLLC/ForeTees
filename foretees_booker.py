@@ -361,32 +361,44 @@ def run():
                     except Exception:
                         pass
 
-                    # Click the "Members" tab via JavaScript (href link blocks Playwright click)
-                    page.evaluate('''() => {
-                        const tabs = document.querySelectorAll("a");
-                        for (const tab of tabs) {
-                            if (tab.textContent.trim() === "Members" && tab.href && tab.href.includes("searchmem")) {
-                                tab.click();
-                                return true;
-                            }
-                        }
-                        return false;
+                    # Click the "Members" tab — use force + no_wait_after since
+                    # the <a href="Member_searchmem"> causes Playwright to wait
+                    # for navigation that never completes (it's an AJAX action)
+                    members_link = page.locator('a[href*="searchmem"]').first
+                    members_link.click(force=True, no_wait_after=True)
+                    time.sleep(2)
+                    log.info("Clicked Members tab.")
+
+                    # Dump right panel HTML for debugging
+                    panel_html = page.evaluate('''() => {
+                        const panel = document.querySelector("#playerSelectPanel, .ftMs-container, [class*=playerSelect]");
+                        return panel ? panel.innerHTML.substring(0, 2000) : "No panel found";
                     }''')
-                    time.sleep(1.5)
-                    log.info("Clicked Members tab via JS.")
+                    log.info(f"Right panel HTML: {panel_html[:500]}")
                     take_screenshot(page, f"members_tab_slot{slot_idx}")
 
-                    # Type the member's last name into the search field
-                    last_name = name.split()[1]
+                    # Check if ftMs-input is now visible; if not, try jQuery trigger
+                    search_visible = page.locator('input.ftMs-input').first.is_visible()
+                    if not search_visible:
+                        log.info("ftMs-input not visible, trying jQuery trigger...")
+                        page.evaluate('''() => {
+                            if (typeof jQuery !== "undefined") {
+                                jQuery('a[href*="searchmem"]').trigger("click");
+                            }
+                        }''')
+                        time.sleep(2)
+                        take_screenshot(page, f"jquery_members_slot{slot_idx}")
+
+                    # Type the member number into the search field for accuracy
                     search_input = page.locator('input.ftMs-input').first
-                    search_input.click(timeout=5000)
-                    search_input.fill(last_name)
+                    search_input.click(force=True, timeout=5000)
+                    search_input.fill(member_id_guest)
                     time.sleep(1.5)
-                    log.info(f"Typed '{last_name}' in member search.")
+                    log.info(f"Typed '{member_id_guest}' in member search.")
                     take_screenshot(page, f"search_slot{slot_idx}")
 
                     # Click the matching result from the search results
-                    result = page.locator(f'li:has-text("{last_name}"), .ftMs-resultName:has-text("{last_name}")').first
+                    result = page.locator(f'li:has-text("{name.split()[1]}"), .ftMs-resultName:has-text("{name.split()[1]}")').first
                     result.click(timeout=5000)
                     log.info(f"Added {name} to player {player_num}.")
                     time.sleep(1)
@@ -396,9 +408,24 @@ def run():
                     take_screenshot(page, f"error_player{player_num}")
 
             # ---------------------------------------------------------------
-            # Step 10 — Confirm and save the booking
+            # Step 10 — Verify members were added, then confirm booking
             # ---------------------------------------------------------------
-            log.info("Confirming the booking...")
+            # Check how many slots are now filled
+            filled_count = page.evaluate('''() => {
+                const inputs = document.querySelectorAll("input.ftS-playerNameInput");
+                let filled = 0;
+                for (const inp of inputs) {
+                    if (inp.value && inp.value.trim() !== "") filled++;
+                }
+                return filled;
+            }''')
+            log.info(f"Filled player slots: {filled_count} / 4")
+            if filled_count < 4:
+                log.error(f"Only {filled_count} players filled — expected 4. NOT submitting.")
+                take_screenshot(page, "error_incomplete")
+                sys.exit(1)
+
+            log.info("All 4 players filled. Confirming the booking...")
             take_screenshot(page, "before_submit")
             try:
                 # Submit button may be <a>, <button>, or <input> element
