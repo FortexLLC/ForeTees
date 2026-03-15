@@ -30,6 +30,9 @@ GUEST_MEMBERS = [
     ("Mitchell Roth", "Roth_H1542"),
 ]
 
+# Minimum open slots required (you auto-fill slot 1 + 3 guests = all 4 must be open)
+MIN_OPEN_SLOTS = 4
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -56,10 +59,9 @@ def now_mt():
 def get_target_saturday():
     """Calculate the Saturday that is 5 days from today (Monday)."""
     today = now_mt().date()
-    # If today is Monday (weekday 0), Saturday is 5 days out
     days_until_saturday = (5 - today.weekday()) % 7
     if days_until_saturday == 0:
-        days_until_saturday = 7  # next Saturday if today is already Saturday
+        days_until_saturday = 7
     target = today + timedelta(days=days_until_saturday)
     log.info(f"Target Saturday: {target.strftime('%B %d, %Y')} ({days_until_saturday} days from today)")
     return target
@@ -78,7 +80,6 @@ def wait_until(target_dt, label="target"):
         elif remaining > 1:
             time.sleep(0.5)
         else:
-            # Sub-second precision — tight spin loop
             time.sleep(0.01)
 
 
@@ -100,7 +101,6 @@ def run():
     password = os.environ.get("FORETEES_PASSWORD")
 
     if not member_id or not password:
-        # Try loading from .env for local development
         try:
             from dotenv import load_dotenv
             load_dotenv()
@@ -113,10 +113,7 @@ def run():
         log.error("FORETEES_MEMBER and FORETEES_PASSWORD must be set as environment variables.")
         sys.exit(1)
 
-    tz = pytz.timezone(MOUNTAIN_TZ)
     today = now_mt()
-
-    # Calculate login time (2 minutes before booking window)
     booking_time = today.replace(hour=BOOKING_HOUR, minute=BOOKING_MINUTE, second=0, microsecond=0)
     login_time = booking_time - timedelta(minutes=LOGIN_EARLY_MIN)
 
@@ -158,35 +155,34 @@ def run():
             page.goto(FORETEES_URL, wait_until="networkidle", timeout=30000)
 
             log.info("Filling login credentials...")
-            # ForeTees login form — exact selectors from HTML inspection
             page.fill('#user_name', member_id)
             page.fill('#password', password)
-
-            # Submit the login form
             page.click('input.button-primary[type="submit"]')
             page.wait_for_load_state("networkidle", timeout=15000)
             log.info("Login submitted, waiting for page to load...")
             time.sleep(3)
-            take_screenshot(page, "after_login")
             log.info(f"Post-login URL: {page.url}")
+
+            # Verify login succeeded
+            if "LoginPrompt" in page.url:
+                log.error("Login failed — still on login page. Check credentials.")
+                take_screenshot(page, "error_login")
+                sys.exit(1)
+            log.info("Login successful.")
 
             # ---------------------------------------------------------------
             # Step 4 — Navigate to Tee Times > Make, Change, or View
             # ---------------------------------------------------------------
             log.info("Navigating to Tee Times...")
-
-            # Try clicking the Tee Times menu item
             tee_times_link = page.locator('text="Tee Times"').first
             if tee_times_link.is_visible():
                 tee_times_link.click()
                 time.sleep(1)
 
-            # Click the sub-menu item
             make_tee_times = page.locator('text="Make, Change, or View Tee Times"').first
             if make_tee_times.is_visible(timeout=5000):
                 make_tee_times.click()
             else:
-                # Fallback: try partial text match
                 make_tee_times = page.locator('a:has-text("Make"), a:has-text("Tee Sheet")').first
                 make_tee_times.click()
 
@@ -198,24 +194,19 @@ def run():
             # Step 5 — Select Saturday on the calendar (BEFORE 7am)
             # ---------------------------------------------------------------
             sat_day = target_saturday.day
-            sat_month = target_saturday.strftime("%B")
-            sat_date_str = f"{sat_month} {sat_day}"
-            log.info(f"Selecting Saturday: {sat_date_str}")
+            log.info(f"Selecting Saturday: {target_saturday.strftime('%B')} {sat_day}")
 
-            # Strategy A: click by link text matching the day number
             sat_clicked = False
             try:
-                # Try clicking a calendar cell with the day number
-                # ForeTees calendars often use links or buttons with the day number
                 day_link = page.locator(f'a:has-text("{sat_day}"), td:has-text("{sat_day}")').first
                 day_link.click(timeout=5000)
                 sat_clicked = True
-                log.info(f"Clicked Saturday (strategy A: day text '{sat_day}')")
+                log.info(f"Clicked Saturday (day text '{sat_day}')")
             except Exception:
                 pass
 
-            # Strategy B: try aria-label or title attribute
             if not sat_clicked:
+                sat_date_str = f"{target_saturday.strftime('%B')} {sat_day}"
                 try:
                     sat_cell = page.locator(
                         f'[aria-label*="{sat_date_str}"], '
@@ -224,18 +215,17 @@ def run():
                     ).first
                     sat_cell.click(timeout=5000)
                     sat_clicked = True
-                    log.info(f"Clicked Saturday (strategy B: aria-label/title)")
                 except Exception:
                     pass
 
             if not sat_clicked:
-                log.error(f"Could not find Saturday ({sat_date_str}) on the calendar.")
+                log.error("Could not find Saturday on the calendar.")
                 take_screenshot(page, "error")
                 sys.exit(1)
 
             page.wait_for_load_state("networkidle", timeout=10000)
             time.sleep(1)
-            log.info("Saturday tee sheet loaded (pre-7am — tee times not yet available).")
+            log.info("Saturday tee sheet loaded.")
 
             # ---------------------------------------------------------------
             # Step 6 — Wait until exactly 7:00:00am MT
@@ -249,105 +239,95 @@ def run():
             log.info("Refreshing page to load tee times...")
             page.reload(wait_until="networkidle", timeout=15000)
             time.sleep(2)
-            take_screenshot(page, "after_refresh")
-            log.info("Page refreshed — scanning for available tee times.")
+            log.info("Page refreshed.")
 
-            # Dump tee time rows — find both booked and available for comparison
-            tee_html = page.evaluate('''() => {
+            # ---------------------------------------------------------------
+            # Step 8 — Find first tee time with enough open slots
+            # ---------------------------------------------------------------
+            log.info(f"Scanning for tee time with at least {MIN_OPEN_SLOTS} open slots...")
+
+            # ForeTees div-based tee sheet:
+            #   Each row: <div class="rwdTr ...">
+            #   Player columns: <div class="rwdTd pgCol"> — empty = open slot
+            #   Fully booked rows have class "hasRowColor", open rows have "noRowColor"
+            #   Partially booked rows may have "hasRowColor" but with some empty pgCol divs
+            slot_index = page.evaluate('''(minOpen) => {
                 const rows = document.querySelectorAll(".rwdTr");
-                let info = "Total rwdTr rows: " + rows.length + "\\n\\n";
-
-                let bookedSample = null;
-                let availableSamples = [];
-
-                for (const row of rows) {
+                for (let i = 0; i < rows.length; i++) {
+                    const row = rows[i];
                     const timeSlot = row.querySelector(".time_slot");
                     if (!timeSlot) continue;
 
-                    const playerCols = row.querySelectorAll(".plCol, .pgCol");
-                    const playerText = Array.from(playerCols).map(c => c.textContent.trim()).join("|");
-                    const hasPlayers = playerText.length > 5;
-
-                    if (hasPlayers && !bookedSample) {
-                        bookedSample = {time: timeSlot.textContent.trim(), classes: row.className, html: row.outerHTML.substring(0, 600)};
+                    // Count empty player columns (pgCol divs with no text content)
+                    const pgCols = row.querySelectorAll(".pgCol");
+                    let openSlots = 0;
+                    for (const col of pgCols) {
+                        if (col.textContent.trim() === "") openSlots++;
                     }
-                    if (!hasPlayers && availableSamples.length < 2) {
-                        availableSamples.push({time: timeSlot.textContent.trim(), classes: row.className, html: row.outerHTML.substring(0, 600), playerText: playerText});
+
+                    if (openSlots >= minOpen) {
+                        return {
+                            index: i,
+                            time: timeSlot.textContent.trim(),
+                            openSlots: openSlots,
+                            totalPgCols: pgCols.length
+                        };
                     }
                 }
+                return null;
+            }''', MIN_OPEN_SLOTS)
 
-                info += "Booked sample: " + JSON.stringify(bookedSample, null, 2) + "\\n\\n";
-                info += "Available samples: " + JSON.stringify(availableSamples, null, 2);
-                return info;
-            }''')
-            log.info(f"Tee sheet rows:\n{tee_html}")
-
-            # ---------------------------------------------------------------
-            # Step 8 — Select the first available tee time
-            # ---------------------------------------------------------------
-            log.info("Looking for first available tee time slot...")
-
-            # ForeTees uses div-based layout:
-            #   Available rows: class="rwdTr noRowColor" with empty player columns
-            #   Booked rows: class="rwdTr hasRowColor" with player names
-            # Click the time_slot div inside the first available row
-            available_row = page.locator('.rwdTr.noRowColor .time_slot').first
-            try:
-                available_row.wait_for(state="visible", timeout=5000)
-                time_text = available_row.text_content()
-                log.info(f"Found available tee time: {time_text}")
-                available_row.click()
-            except Exception:
-                log.error("No available tee time slots found.")
-                take_screenshot(page, "error")
+            if not slot_index:
+                log.error(f"No tee time found with at least {MIN_OPEN_SLOTS} open slots.")
+                take_screenshot(page, "error_no_slots")
                 sys.exit(1)
-            log.info("Clicked first available tee time. Waiting for booking form...")
+
+            log.info(f"Found tee time: {slot_index['time']} with {slot_index['openSlots']} open slots")
+
+            # Click the time_slot div in that row
+            target_row = page.locator('.rwdTr').nth(slot_index['index'])
+            target_row.locator('.time_slot').click()
+            log.info(f"Clicked tee time {slot_index['time']}. Waiting for booking form...")
             time.sleep(3)
             page.wait_for_load_state("networkidle", timeout=15000)
             take_screenshot(page, "after_slot_click")
 
-            # Dump booking form HTML for debugging
-            form_html = page.evaluate('''() => {
-                // Look for input fields, forms, and player-related elements
+            # Dump page state for debugging the booking form
+            page_info = page.evaluate('''() => {
                 const inputs = document.querySelectorAll("input[type=text], input[type=search], select");
-                let info = "Input fields found: " + inputs.length + "\\n";
+                let info = "URL: " + window.location.href + "\\n";
+                info += "Inputs: " + inputs.length + "\\n";
                 for (const inp of inputs) {
-                    info += "  " + inp.tagName + " name=" + inp.name + " id=" + inp.id
-                         + " placeholder=" + (inp.placeholder || "") + " class=" + inp.className + "\\n";
+                    info += "  <" + inp.tagName + " name='" + inp.name + "' id='" + inp.id
+                         + "' placeholder='" + (inp.placeholder || "") + "' class='" + inp.className + "'>\\n";
                 }
-
-                // Look for player-related containers
-                const playerDivs = document.querySelectorAll("[class*=player], [class*=Player], [id*=player], [id*=Player]");
-                info += "\\nPlayer-related elements: " + playerDivs.length + "\\n";
-                for (const pd of playerDivs) {
-                    info += "  " + pd.tagName + " id=" + pd.id + " class=" + pd.className + "\\n";
+                const playerEls = document.querySelectorAll("[class*=player], [class*=Player], [id*=player], [id*=Player]");
+                info += "Player elements: " + playerEls.length + "\\n";
+                for (const pe of playerEls) {
+                    info += "  <" + pe.tagName + " id='" + pe.id + "' class='" + pe.className + "'>\\n";
                 }
-
-                // Check current URL
-                info += "\\nCurrent URL: " + window.location.href;
                 return info;
             }''')
-            log.info(f"Booking form details:\n{form_html}")
+            log.info(f"Booking form:\n{page_info}")
 
             # ---------------------------------------------------------------
             # Step 9 — Add the three additional members
             # ---------------------------------------------------------------
             log.info("Adding guest members to the booking...")
 
-            # Click Members button/tab if present
+            # Try clicking Members button/tab if present
             try:
                 members_btn = page.locator('text="Members", a:has-text("Members"), button:has-text("Members")').first
                 if members_btn.is_visible(timeout=3000):
                     members_btn.click()
                     time.sleep(1)
             except Exception:
-                log.info("No separate Members button found — member fields may already be visible.")
+                log.info("No separate Members button found.")
 
             for i, (name, member_id_guest) in enumerate(GUEST_MEMBERS, start=2):
                 log.info(f"Adding player {i}: {name} ({member_id_guest})")
                 try:
-                    # Find the search/input field for this player slot
-                    # ForeTees typically has input fields for each player slot
+                    # ForeTees player search fields — try multiple selector patterns
                     search_field = page.locator(
                         f'input[name*="player{i}"], '
                         f'input[name*="slot{i}"], '
@@ -358,11 +338,9 @@ def run():
 
                     search_field.click()
                     search_field.fill(member_id_guest)
-
-                    # Wait for autocomplete suggestions
                     time.sleep(0.8)
 
-                    # Click the matching autocomplete result
+                    # Click the autocomplete result
                     autocomplete_result = page.locator(
                         f'text="{name}", '
                         f'text="{member_id_guest}", '
@@ -400,7 +378,6 @@ def run():
                 take_screenshot(page, "error")
                 sys.exit(1)
 
-            # Take confirmation screenshot
             take_screenshot(page, "booking_confirmation")
             log.info("Booking process complete.")
 
