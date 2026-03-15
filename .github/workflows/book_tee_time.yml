@@ -1,0 +1,53 @@
+# ForeTees Auto-Booker — Inverness Club
+# Runs every Monday morning to book Saturday tee times.
+#
+# DST REMINDER — Update the cron schedule twice a year:
+#   Summer (MDT, mid-Mar to early-Nov): 45 13 * * 1  (6:45am MDT = 1:45pm UTC)
+#   Winter (MST, early-Nov to mid-Mar): 45 12 * * 1  (6:45am MST = 12:45pm UTC)
+#
+# Denver DST dates:
+#   Spring forward: 2nd Sunday of March
+#   Fall back: 1st Sunday of November
+
+name: Book Tee Time
+
+on:
+  schedule:
+    # 6:45am MDT (UTC-7) — currently in summer/MDT
+    - cron: '45 13 * * 1'
+  workflow_dispatch:  # Manual trigger for testing
+
+jobs:
+  book:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright pytz python-dotenv
+          playwright install chromium --with-deps
+
+      - name: Run booking script
+        env:
+          FORETEES_MEMBER: ${{ secrets.FORETEES_MEMBER }}
+          FORETEES_PASSWORD: ${{ secrets.FORETEES_PASSWORD }}
+        run: python foretees_booker.py
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: booking-results
+          path: |
+            *.png
+            *.log
+          retention-days: 30
