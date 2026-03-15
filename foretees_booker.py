@@ -410,29 +410,36 @@ def run():
                     search_input.type(last_name, delay=50)  # Type with delay for autocomplete
 
                     # Wait for autocomplete results to appear, then click via JS
-                    # The autocomplete may use various DOM structures, so we use
-                    # a JS approach that finds any element containing the member ID text
+                    # jQuery UI autocomplete renders results as <li><a> or <li><div>
+                    # We find the smallest element containing the member ID text
                     clicked = page.evaluate(f'''(memberId) => {{
                         return new Promise((resolve) => {{
                             let attempts = 0;
                             const interval = setInterval(() => {{
                                 attempts++;
-                                // Look for any visible element containing the member ID
-                                const allEls = document.querySelectorAll("*");
+                                // Find all elements whose textContent contains the member ID
+                                const candidates = [];
+                                const allEls = document.querySelectorAll("li, a, div, span");
                                 for (const el of allEls) {{
-                                    if (el.children.length === 0 &&
-                                        el.textContent.includes(memberId) &&
-                                        el.offsetParent !== null) {{
-                                        el.click();
-                                        clearInterval(interval);
-                                        resolve({{
-                                            found: true,
-                                            tag: el.tagName,
-                                            class: el.className.toString().substring(0, 80),
-                                            text: el.textContent.substring(0, 80)
-                                        }});
-                                        return;
+                                    if (el.textContent.includes(memberId) &&
+                                        el.offsetWidth > 0 && el.offsetHeight > 0) {{
+                                        candidates.push(el);
                                     }}
+                                }}
+                                // Pick the smallest (most specific) matching element
+                                if (candidates.length > 0) {{
+                                    candidates.sort((a, b) => a.textContent.length - b.textContent.length);
+                                    const el = candidates[0];
+                                    el.click();
+                                    clearInterval(interval);
+                                    resolve({{
+                                        found: true,
+                                        tag: el.tagName,
+                                        class: el.className.toString().substring(0, 80),
+                                        text: el.textContent.substring(0, 80),
+                                        total: candidates.length
+                                    }});
+                                    return;
                                 }}
                                 if (attempts > 50) {{
                                     clearInterval(interval);
