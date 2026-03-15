@@ -289,17 +289,25 @@ def run():
             }''', MIN_OPEN_SLOTS)
 
             if not slot_index:
-                # Log what we found for debugging
+                # Log detailed info for debugging
                 debug_info = page.evaluate('''() => {
                     const rows = document.querySelectorAll(".rwdTr");
-                    let info = "All rows with time slots:\\n";
+                    let info = "All rows (" + rows.length + "):\\n";
                     for (const row of rows) {
                         const ts = row.querySelector(".time_slot");
                         if (!ts) continue;
                         const pgCols = row.querySelectorAll(".pgCol");
                         let open = 0;
-                        for (const c of pgCols) { if (c.textContent.trim() === "") open++; }
-                        info += ts.textContent.trim() + " — pgCols:" + pgCols.length + " open:" + open + " classes:" + row.className + "\\n";
+                        let details = [];
+                        for (const c of pgCols) {
+                            const t = c.textContent.trim();
+                            const inner = c.innerHTML.trim();
+                            if (t === "") open++;
+                            details.push("'" + t.substring(0,20) + "' html:" + inner.substring(0,40));
+                        }
+                        info += ts.textContent.trim() + " — open:" + open + "/" + pgCols.length
+                             + " class:" + row.className.replace("rwdTr ", "")
+                             + " [" + details.join(" | ") + "]\\n";
                     }
                     return info;
                 }''')
