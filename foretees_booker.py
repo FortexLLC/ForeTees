@@ -252,22 +252,49 @@ def run():
             take_screenshot(page, "after_refresh")
             log.info("Page refreshed — scanning for available tee times.")
 
-            # Dump first few tee time rows for selector debugging
+            # Dump page structure for selector debugging
             tee_html = page.evaluate('''() => {
-                const rows = document.querySelectorAll("tr");
-                let html = "";
-                let count = 0;
-                for (const row of rows) {
-                    if (count >= 5) break;
-                    const timeCell = row.querySelector("td");
-                    if (timeCell && /\\d+:\\d+/.test(timeCell.textContent)) {
-                        html += row.outerHTML + "\\n---\\n";
-                        count++;
+                // Check for iframes
+                const iframes = document.querySelectorAll("iframe");
+                let info = "Iframes: " + iframes.length + "\\n";
+
+                // Get all tables
+                const tables = document.querySelectorAll("table");
+                info += "Tables: " + tables.length + "\\n";
+
+                // Find elements containing time patterns like "7:00" or "8:00"
+                const allElements = document.querySelectorAll("*");
+                let timeElements = [];
+                for (const el of allElements) {
+                    if (el.children.length === 0 && /\\d+:\\d{2}\\s*(AM|PM)/i.test(el.textContent)) {
+                        timeElements.push({
+                            tag: el.tagName,
+                            class: el.className,
+                            id: el.id,
+                            text: el.textContent.trim().substring(0, 30),
+                            parentTag: el.parentElement ? el.parentElement.tagName : "none",
+                            parentClass: el.parentElement ? el.parentElement.className : "",
+                            grandparentTag: el.parentElement && el.parentElement.parentElement ? el.parentElement.parentElement.tagName : "none",
+                            grandparentClass: el.parentElement && el.parentElement.parentElement ? el.parentElement.parentElement.className : "",
+                            onclick: el.getAttribute("onclick") || el.parentElement?.getAttribute("onclick") || "",
+                        });
+                        if (timeElements.length >= 3) break;
                     }
                 }
-                return html || "No tee time rows found";
+                info += "Time elements found: " + timeElements.length + "\\n";
+                info += JSON.stringify(timeElements, null, 2);
+
+                // Also get first table row HTML if tables exist
+                if (tables.length > 0) {
+                    const rows = tables[tables.length - 1].querySelectorAll("tr");
+                    if (rows.length > 1) {
+                        info += "\\n\\nFirst data row: " + rows[1].outerHTML.substring(0, 500);
+                    }
+                }
+
+                return info;
             }''')
-            log.info(f"Tee sheet row HTML samples:\n{tee_html}")
+            log.info(f"Page structure:\n{tee_html}")
 
             # ---------------------------------------------------------------
             # Step 8 — Select the first available tee time
