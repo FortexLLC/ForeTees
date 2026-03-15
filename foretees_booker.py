@@ -249,15 +249,32 @@ def run():
             log.info("Refreshing page to load tee times...")
             page.reload(wait_until="networkidle", timeout=15000)
             time.sleep(2)
+            take_screenshot(page, "after_refresh")
             log.info("Page refreshed — scanning for available tee times.")
+
+            # Dump first few tee time rows for selector debugging
+            tee_html = page.evaluate('''() => {
+                const rows = document.querySelectorAll("tr");
+                let html = "";
+                let count = 0;
+                for (const row of rows) {
+                    if (count >= 5) break;
+                    const timeCell = row.querySelector("td");
+                    if (timeCell && /\\d+:\\d+/.test(timeCell.textContent)) {
+                        html += row.outerHTML + "\\n---\\n";
+                        count++;
+                    }
+                }
+                return html || "No tee time rows found";
+            }''')
+            log.info(f"Tee sheet row HTML samples:\n{tee_html}")
 
             # ---------------------------------------------------------------
             # Step 8 — Select the first available tee time
             # ---------------------------------------------------------------
             log.info("Looking for first available tee time slot...")
 
-            # ForeTees v5 tee sheet — best-guess selectors for available slots
-            # These target common patterns: green cells, "available" text, open slots
+            # ForeTees v5 tee sheet selectors — try multiple patterns
             available_slot = None
             selectors = [
                 'td.pointed:not(.booked)',           # Common ForeTees pattern
@@ -266,6 +283,8 @@ def run():
                 '.teeSlot:not(.booked)',              # Class-based
                 'td.open',                            # Open slot
                 'tr.pointed td:first-child',          # First column of pointed row
+                'input[type="radio"]',                # Radio button selection
+                'tr[onclick]',                        # Clickable row
             ]
 
             for selector in selectors:
