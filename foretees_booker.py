@@ -296,23 +296,29 @@ def run():
                 # Log detailed info for debugging
                 debug_info = page.evaluate('''() => {
                     const rows = document.querySelectorAll(".rwdTr");
-                    let info = "All rows (" + rows.length + "):\\n";
-                    for (const row of rows) {
+                    let info = "All " + rows.length + " rwdTr rows:\\n";
+                    let noTimeSlotCount = 0;
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i];
                         const ts = row.querySelector(".time_slot");
-                        if (!ts) continue;
+                        if (!ts) {
+                            if (noTimeSlotCount < 3) {
+                                info += "Row " + i + " NO time_slot — classes:" + row.className
+                                     + " html:" + row.outerHTML.substring(0, 300) + "\\n";
+                            }
+                            noTimeSlotCount++;
+                            continue;
+                        }
                         const pgCols = row.querySelectorAll(".pgCol");
                         let open = 0;
-                        let details = [];
                         for (const c of pgCols) {
                             const spans = c.querySelectorAll("span");
                             const hasPlayer = Array.from(spans).some(s => s.textContent.trim().length > 0);
                             if (!hasPlayer) open++;
-                            const t = c.textContent.trim();
-                            details.push(hasPlayer ? t.substring(0,20) : "OPEN");
                         }
-                        info += ts.textContent.trim() + " — open:" + open + "/" + pgCols.length
-                             + " [" + details.join(" | ") + "]\\n";
+                        info += "Row " + i + " " + ts.textContent.trim() + " open:" + open + "/" + pgCols.length + "\\n";
                     }
+                    info += "Rows without time_slot: " + noTimeSlotCount;
                     return info;
                 }''')
                 log.info(f"Slot scan details:\n{debug_info}")
