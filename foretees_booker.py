@@ -432,7 +432,11 @@ def run():
                     take_screenshot(page, f"search_slot{slot_idx}")
 
                     # Click the matching result (format: "LastName_HNNNN, FirstName")
-                    result = page.locator(f'li:has-text("{member_id_guest}")').first
+                    # The result could be in any element type (div, li, span, etc.)
+                    result = page.locator(f'text="{member_id_guest}"').first
+                    if not result.is_visible(timeout=3000):
+                        # Try broader match with just the last name
+                        result = page.locator(f':has-text("{member_id_guest}")').last
                     result.click(timeout=5000)
                     log.info(f"Added {name} to player {player_num}.")
                     time.sleep(1)
