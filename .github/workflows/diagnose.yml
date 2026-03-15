@@ -1,0 +1,36 @@
+name: Diagnose Tee Sheet
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright pytz python-dotenv
+          playwright install chromium --with-deps
+
+      - name: Run diagnostic
+        env:
+          FORETEES_MEMBER: ${{ secrets.FORETEES_MEMBER }}
+          FORETEES_PASSWORD: ${{ secrets.FORETEES_PASSWORD }}
+        run: python diagnose_teesheet.py
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnose-results
+          path: |
+            *.png
+            *.log
+          retention-days: 7
