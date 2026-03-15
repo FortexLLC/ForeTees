@@ -408,14 +408,14 @@ def run():
                     search_input.click(force=True, timeout=5000)
                     search_input.fill("")  # Clear previous search
                     search_input.type(last_name, delay=50)  # Type with delay for autocomplete
-                    # Wait for autocomplete result containing the member ID to appear
-                    result = page.locator(f'text="{member_id_guest}"').first
-                    result.wait_for(state="visible", timeout=5000)
-                    log.info(f"Typed '{last_name}' — autocomplete result visible.")
-                    take_screenshot(page, f"search_slot{slot_idx}")
 
-                    # Click the matching result
-                    result.click(timeout=5000)
+                    # Wait for and click the autocomplete result (jQuery UI autocomplete)
+                    # Results appear as <li> items in a <ul class="ui-autocomplete">
+                    result_selector = f'.ui-autocomplete li:has-text("{member_id_guest}")'
+                    page.locator(result_selector).first.wait_for(state="visible", timeout=5000)
+                    log.info(f"Typed '{last_name}' — autocomplete result visible.")
+                    page.locator(result_selector).first.click(timeout=3000)
+
                     # Wait for the player name input to be filled (confirms member was added)
                     page.wait_for_function(
                         f'''() => {{
