@@ -158,15 +158,17 @@ def run():
             page.goto(FORETEES_URL, wait_until="networkidle", timeout=30000)
 
             log.info("Filling login credentials...")
-            # ForeTees login form — best-guess selectors, may need tuning
-            page.fill('input[name="member_id"], input[name="memberid"], input[name="username"], #member_id', member_id)
-            page.fill('input[name="password"], input[name="pw"], #password', password)
+            # ForeTees login form — fields identified by placeholder text
+            page.fill('input[placeholder="Username"]', member_id)
+            page.fill('input[placeholder="Password"]', password)
 
-            # Submit the login form
-            page.click('input[type="submit"], button[type="submit"], .login-button, #login-btn')
+            # Submit the login form — "SIGN IN" button
+            page.click('button:has-text("SIGN IN"), input[value="SIGN IN"]')
             page.wait_for_load_state("networkidle", timeout=15000)
             log.info("Login submitted, waiting for page to load...")
-            time.sleep(2)
+            time.sleep(3)
+            take_screenshot(page, "after_login")
+            log.info(f"Post-login URL: {page.url}")
 
             # ---------------------------------------------------------------
             # Step 4 — Navigate to Tee Times > Make, Change, or View
