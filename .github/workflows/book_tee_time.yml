@@ -1,9 +1,14 @@
 # ForeTees Auto-Booker — Inverness Club
 # Runs every Monday morning to book Saturday tee times.
 #
+# CRON STRATEGY: GitHub Actions cron can be delayed 5-60 minutes.
+# We schedule at 5:30 AM MT so even with a worst-case 60-min delay,
+# the runner is up by 6:30. The script waits until 6:58 to log in
+# and 7:00:00 sharp to book — so early start just means longer idle.
+#
 # DST REMINDER — Update the cron schedule twice a year:
-#   Summer (MDT, mid-Mar to early-Nov): 45 12 * * 1  (6:45am MDT = 12:45pm UTC)
-#   Winter (MST, early-Nov to mid-Mar): 45 13 * * 1  (6:45am MST = 1:45pm UTC)
+#   Summer (MDT, mid-Mar to early-Nov): 30 11 * * 1  (5:30am MDT = 11:30am UTC)
+#   Winter (MST, early-Nov to mid-Mar): 30 12 * * 1  (5:30am MST = 12:30pm UTC)
 #
 # Denver DST dates:
 #   Spring forward: 2nd Sunday of March
@@ -13,14 +18,14 @@ name: Book Tee Time
 
 on:
   schedule:
-    # 6:45am MDT (UTC-6) — currently in summer/MDT
-    - cron: '45 12 * * 1'
+    # 5:30am MDT (UTC-6) — buffer for GitHub Actions cron delays
+    - cron: '30 11 * * 1'
   workflow_dispatch:  # Manual trigger for testing
 
 jobs:
   book:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120  # Script idles from ~5:30am until 7:00am booking window
 
     steps:
       - name: Checkout repository
